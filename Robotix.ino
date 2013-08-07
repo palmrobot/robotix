@@ -58,10 +58,7 @@ int g_misc_action;
 const char *g_menu_motor[] = { "Move", "Obstacle", "Main Menu" };
 int g_menu_motor_index;
 
-#define MOTOR_AVANCE		1
-#define MOTOR_RECULE		2
-#define MOTOR_STOP		3
-#define MOTOR_OBSTACLE		4
+#define MOTOR_OBSTACLE		1
 int g_motor_action;
 
 
