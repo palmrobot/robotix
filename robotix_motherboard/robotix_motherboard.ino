@@ -1,145 +1,260 @@
 #include <LiquidCrystal.h>
-#include <Stepper.h>
 
+/********************************************************/
+/*      Pin  definitions                                */
+/********************************************************/
+
+/* Buttons */
+#define PIN_INT_BUTTON		2
+#define PIN_LEFT_BUTTON		6
+#define PIN_RIGHT_BUTTON	4
+#define PIN_MIDDLE_BUTTON	7
+#define PIN_UP_BUTTON		8
+#define PIN_DOWN_BUTTON		5
+
+/* sensors */
+#define PIN_DETECTION		A5
+#define PIN_TEMPERATURE		A4
+
+/* LCD */
+#define PIN_LCD_RS		38
+#define PIN_LCD_E		36
+#define PIN_LCD_D4 		34
+#define PIN_LCD_D5 		32
+#define PIN_LCD_D6 		30
+#define PIN_LCD_D7 		28
 
 /********************************************************/
 /*      Buttons definitions                             */
 /********************************************************/
 #define NO_BUTTON	0x00
 #define LEFT_BUTTON	0x01
-#define MID_BUTTON	0x02
+#define MIDDLE_BUTTON	0x02
 #define RIGHT_BUTTON	0x04
+#define UP_BUTTON	0x08
+#define DOWN_BUTTON	0x10
 
-volatile int g_button;
-int g_button_selected;
+volatile unsigned char g_button;
+unsigned char g_button_selected;
 
 
 /********************************************************/
 /*      LCD definitions                                 */
 /********************************************************/
-LiquidCrystal g_lcd(13, 12, 7, 6, 5, 3);
-int g_lcd_col;
-int g_lcd_line;
+LiquidCrystal g_lcd(PIN_LCD_RS, PIN_LCD_E, PIN_LCD_D4, PIN_LCD_D5, PIN_LCD_D6, PIN_LCD_D7);
+unsigned char g_lcd_col;
+unsigned char g_lcd_line;
 
 /********************************************************/
-/*      Motors definitions                              */
+/*      Serial Motor definitions                        */
 /********************************************************/
-Stepper g_motor_left(400, 8, 9, 10, 11);
-#define MOTOR_LEFT_SPEED	48
-int g_motor_left_speed;
-int g_motor_left_count;
+#define PROCESS_COMMAND_STOP		0x01 /* [0x01 Stop] */
+#define PROCESS_COMMAND_FORWARD		0x02 /* [0x02 Forward] [Speed] [distance in cm] */
+#define PROCESS_COMMAND_BACKWARD	0x03 /* [0x03 Backward] [Speed] [distance in cm] */
+#define PROCESS_COMMAND_ROTATE_LEFT	0x04 /* [0x04 Rotate Left] [Speed] [degrees]   */
+#define PROCESS_COMMAND_ROTATE_RIGHT	0x05 /* [0x05 Rotate Right] [Speed] [degrees]  */
+#define PROCESS_COMMAND_TEST		0x06 /* [0x06 Test] [Nb of bytes] [byte 1] [byte 2] ... [byte n] */
+#define PROCESS_COMMAND_GET_COUNTERS	0x07 /* [0x07 Get counters] */
 
-/* Stepper g_motor_right(400, 8, 9, 10, 11); */
-/* #define MOTOR_RIGHT_SPEED	50 */
+#define PROCESS_COMMAND_SEND_COUNTERS	0x88 /* [0x88 Send counters] [Left in cm] [right in cm] */
+
+
 
 /********************************************************/
 /*      Menus definitions                               */
 /********************************************************/
-#define MENU_MAIN		0
-#define MENU_MOTOR		1
-#define MENU_PROG		2
-#define MENU_MOVE		3
-#define MENU_DIR		4
-int g_menu_selected;
 
-#define MENU_MAIN_DETECT	0
-#define MENU_MAIN_MOTOR		1
-#define MENU_MAIN_TEMP		2
-#define MENU_MAIN_PROG		3
-#define MENU_MAIN_END		4
-const char *g_menu_main[] = { "Detection       ", "Moteur          ", "Temperature     ", "Program         " };
-int g_menu_main_index;
+#define MENU_ACTION_NONE		0
+#define MENU_ACTION_TEMPERATURE		1
+#define MENU_ACTION_DETECTION		2
+#define MENU_ACTION_PROG		3
+#define MENU_ACTION_MOTOR		4
+#define MENU_ACTION_PROG_1		5
+#define MENU_ACTION_PROG_2		6
+#define MENU_ACTION_PROG_3		7
+#define MENU_ACTION_SPEED		8
+#define MENU_ACTION_DIR			9
+#define MENU_ACTION_OBSTACLE		10
 
-#define MENU_MOTOR_MOVE		0
-#define MENU_MOTOR_DIR		1
-#define MENU_MOTOR_OBSTACLE	2
-#define MENU_MOTOR_MAIN		3
-#define MENU_MOTOR_END		4
-const char *g_menu_motor[] = { "Move            ", "Dir             ", "Obstacle        ", "Main Menu       " };
-int g_menu_motor_index;
 
-#define MENU_SPEED_PLUS		0
-#define MENU_SPEED_STOP		1
-#define MENU_SPEED_MINUS	2
-const char *g_menu_speed[] = { "  +    STOP   - " };
-int g_cmd_speed_index;
+#define MENU_ACTION_SPEED		8
 
-#define MENU_DIR_REVERSE	0
-#define MENU_DIR_EXIT		1
-#define MENU_DIR_FORWARD	2
-const char *g_menu_dir[] = { "Rever Exit Forwd" };
-int g_cmd_dir_index;
 
-#define MENU_PROG_1		0
-#define MENU_PROG_2		1
-#define MENU_PROG_3		2
-#define MENU_PROG_MAIN		3
-#define MENU_PROG_END		4
-const char *g_menu_prog[] = { "Program 1       ", "Program 2       ", "Program 3       ", "Main menu       " };
-int g_menu_prog_index;
 
-/********************************************************/
-/*      Actions definitions                             */
-/********************************************************/
-#define ACTION_NONE		0
 #define ACTION_MOVE_REVERSE	1
 #define ACTION_MOVE_STOP	2
 #define ACTION_MOVE_FORWARD	3
 #define ACTION_MOTOR_OBSTACLE	4
-#define ACTION_MISC_TEMPERATURE	5
-#define ACTION_MISC_DETECTION	6
 #define ACTION_PROG_1		7
 #define ACTION_PROG_2		8
 #define ACTION_PROG_3		9
 
-int g_action;
-int g_action_detection;
-int g_action_temperature;
+
+
+struct
+{
+    const char name[16 + 1];
+    const unsigned char level;
+    const unsigned char idx;
+    const unsigned char action;
+} menu_t;
+
+enum
+{
+    MENU_MAIN_DETECT = 0,
+    MENU_MAIN_MOTOR,
+    MENU_MAIN_TEMP,
+    MENU_MAIN_PROG,
+    MENU_MAIN_END,
+} menu_main_e;
+
+
+menu_t g_menu_main[] = { {"Detection       ", 0, MENU_MAIN_DETECT, MENU_ACTION_DETECTION},
+			 {"Motor           ", 0, MENU_MAIN_MOTOR, MENU_ACTION_MOTOR},
+			 {"Temperature     ", 0, MENU_MAIN_TEMP, MENU_ACTION_TEMPERATURE},
+			 {"Program         ", 0, MENU_MAIN_PROG, MENU_ACTION_PROGRAM},
+			 {"", 0, MENU_MAIN_END, MENU_ACTION_NONE}};
+
+
+enum {
+    MENU_PROG_1 = 0,
+    MENU_PROG_2,
+    MENU_PROG_3,
+    MENU_PROG_END,
+} menu_prog_e;
+
+menu_t g_menu_prog[] = {{"Program 1       ", 1, MENU_PROG_1, MENU_ACTION_PROG_1},
+			{"Program 2       ", 1, MENU_PROG_2, MENU_ACTION_PROG_2},
+			{"Program 3       ", 1, MENU_PROG_3, MENU_ACTION_PROG_3},
+			{"", 1, MENU_PROG_END, MENU_ACTION_NONE}};
+
+
+enum
+{
+    MENU_MOTOR_SPEED = 0,
+    MENU_MOTOR_DIR,
+    MENU_MOTOR_OBSTACLE,
+    MENU_MOTOR_END,
+} menu_motor_e;
+
+menu_t g_menu_motor[] = { {"Speed           ", 1, MENU_MOTOR_SPEED, MENU_ACTION_SPEED},
+			  {"Dir             ", 1, MENU_MOTOR_DIR, MENU_ACTION_DIR},
+			  {"Obstacle        ", 1, MENU_MOTOR_OBSTACLE, MENU_ACTION_OBSTACLE},
+			  {"",1, MENU_MOTOR_END, MENU_ACTION_NONE}};
+
+enum
+{
+    MENU_SPEED_PLUS = 0,
+    MENU_SPEED_STOP,
+    MENU_SPEED_MINUS,
+    MENU_SPEED_END = 1,
+} menu_speed_e;
+
+menu_t g_menu_speed[] = { {"  +    STOP   - ", 2, MENU_SPEED_PLUS, MENU_ACTION_NONE},
+			  {"", 2, MENU_SPEED_END, MENU_ACTION_NONE}};
+
+enum
+{
+    MENU_DIR_REVERSE = 0,
+    MENU_DIR_FORWARD,
+    MENU_DIR_END = 1,
+} menu_dir_e;
+
+menu_t g_menu_dir[] = {{"Rever Forwd" , 2, MENU_DIR_REVERSE, MENU_ACTION_NONE},
+		       {"", 2, MENU_DIR_END, MENU_ACTION_NONE}};
+
+unsigned char g_menu_idx;
+unsigned char g_menu_level;
+unsigned char g_menu_action;
+menu_t *g_menu;
+menu_t *g_menu_prev;
+
+
+
+/********************************************************/
+/*      Process definitions                             */
+/********************************************************/
+
+/* process MENU */
+unsigned char g_process_menu;
+
+/* process ACTION */
+#define PROCESS_ACTION_NONE			0
+#define PROCESS_ACTION_DETECTION		1
+#define PROCESS_ACTION_TEMPERATURE		2
+#define PROCESS_ACTION_PROG_1			3
+#define PROCESS_ACTION_PROG_2			4
+#define PROCESS_ACTION_PROG_3			5
+#define PROCESS_ACTION_OBSTACLE			6
+#define PROCESS_ACTION_SPEED			7
+#define PROCESS_ACTION_DIR			8
+
+unsigned char g_process_action;
+
+/* process SERIAL MOTOR */
+unsigned char g_process_serial_motor;
+
+/* process SERIAL SOUND */
+unsigned char g_process_serial_sound;
+
+
+/********************************************************/
+/*      Global definitions                              */
+/********************************************************/
+unsigned char g_motor_speed;
+unsigned char g_action_detection;
+unsigned char g_action_temperature;
 
 
 void setup()
 {
     /* set up the LCD's number of columns and rows: */
-    g_lcd.begin(16, 2);
-
-    /* Set the Stepper Speed */
-    g_motor_left_speed = MOTOR_LEFT_SPEED;
-    g_motor_left.setSpeed(g_motor_left_speed);
-    g_motor_left_count = 0;
-
-    /* initialize the serial communications: */
-    Serial.begin(115200);
-
-    /* Initialize the buttons input pin */
-    pinMode(A0, INPUT);
-    pinMode(A1, INPUT);
-    pinMode(A2, INPUT);
-
-    /* Initialize the sensor input pin */
-    pinMode(A5, INPUT);
-
-    /* Init interrupt for the 3 buttons */
-    attachInterrupt(0, interrupt_call, FALLING);
-
-    /* Init global variables */
-    g_menu_main_index = 0;
-    g_menu_motor_index = 0;
-    g_cmd_speed_index = MENU_SPEED_STOP;
-    g_cmd_dir_index = MENU_DIR_EXIT;
-    g_menu_prog_index = 0;
-    g_button = NO_BUTTON;
     g_lcd_col	= 0;
     g_lcd_line	= 0;
+    g_lcd.begin(16, 2);
 
-    g_action  = ACTION_NONE;
+    /* initialize the serial communications Motor board */
+    Serial.begin(115200);
+
+    /* initialize the serial communications Sound board */
+    Serial1.begin(115200);
+
+    /* Initialize the buttons input pin */
+    pinMode(PIN_LEFT_BUTTON, INPUT);
+    pinMode(PIN_RIGHT_BUTTON, INPUT);
+    pinMode(PIN_MIDDLE_BUTTON, INPUT);
+    pinMode(PIN_UP_BUTTON, INPUT);
+    pinMode(PIN_DOWN_BUTTON, INPUT);
+
+    /* Initialize the sensors input pin */
     g_action_detection	 = 2;
-    g_action_temperature = 0;
+    pinMode(PIN_DETECTION, INPUT);
 
-    g_lcd.print("----> Ready !!!!");
-    delay(2000);
+    g_action_temperature = 0;
+    g_motor_speed = 0;
+
+    /* Init interrupt 0 PIN2 for the 5 buttons */
+    g_button_selected = NO_BUTTON;
+    g_button = NO_BUTTON;
+    pinMode(PIN_INT_BUTTON, INPUT);
+    attachInterrupt(0, interrupt_call, FALLING);
+
+    /* init global menu variables */
+    g_menu_idx    = 0;
+    g_menu_level  = 0;
+    g_menu_action = MENU_ACTION_NONE;
+    g_menu        = &g_menu_main;
+    g_menu_prev   = g_menu;
+
+    /* init process states */
+    g_process_menu = 1;
+    g_process_action = PROCESS_ACTION_NONE;
+    g_process_serial_motor = 1;
+    g_process_serial_sound = 1;
+
+    /* start, and display first menu entry */
     g_lcd.clear();
-    g_lcd.print(g_menu_main[MENU_MAIN_DETECT]);
-    g_menu_selected = MENU_MAIN;
+    g_lcd.print(g_menu[0]);
 }
 
 void interrupt_call(void)
@@ -147,20 +262,21 @@ void interrupt_call(void)
     /* Do not set button if last button state is not threated */
     if (g_button == NO_BUTTON)
     {
-	if (digitalRead(A0) == 1 )
+	if (digitalRead(PIN_LEFT_BUTTON))
 	    g_button = LEFT_BUTTON;
-	else if (digitalRead(A1) == 1 )
-	    g_button = MID_BUTTON;
-	else if (digitalRead(A2) == 1 )
+	else if (digitalRead(PIN_RIGHT_BUTTON))
 	    g_button = RIGHT_BUTTON;
+	else if (digitalRead(PIN_MIDDLE_BUTTON))
+	    g_button = MIDDLE_BUTTON;
+	else if (digitalRead(PIN_UP_BUTTON))
+	    g_button = UP_BUTTON;
+	else if (digitalRead(PIN_DOWN_BUTTON))
+	    g_button = DOWN_BUTTON;
     }
 }
 
-void gestion_menu(int *menu_index, int menu_end)
+void gestion_menu(void)
 {
-    int idx;
-
-    idx = *menu_index;
     g_button_selected = NO_BUTTON;
 
     /* Check which Button is hold */
@@ -169,10 +285,14 @@ void gestion_menu(int *menu_index, int menu_end)
 	case LEFT_BUTTON:
 	{
 	    g_button_selected = g_button;
-	    if (idx == 0)
-		idx = menu_end - 1;
-	    else
-		idx--;
+	    if (g_menu_idx > 0)
+	    {
+		g_menu_idx--;
+
+		/* clear LCD before displaying new menu or action */
+		g_lcd.clear();
+		g_lcd.print(g_menu[g_menu_idx]->name);
+	    }
 
 	    /* end of threatment, re-enable the button for interrupt */
 	    g_button = NO_BUTTON;
@@ -182,309 +302,143 @@ void gestion_menu(int *menu_index, int menu_end)
 	{
 	    g_button_selected = g_button;
 
-	    if (idx == (menu_end - 1))
-		idx = 0;
-	    else
-		idx++;
+	    if (g_menu[0] != '\0')
+	    {
+		g_menu_idx++;
+
+		/* clear LCD before displaying new menu or action */
+		g_lcd.clear();
+		g_lcd.print(g_menu[g_menu_idx]->name);
+	    }
 
 	    /* end of threatment, re-enable the button for interrupt */
 	    g_button = NO_BUTTON;
 	}
 	break;
-	case MID_BUTTON:
+	case MIDDLE_BUTTON:
 	{
 	    g_button_selected = g_button;
 
+	    if (g_menu_level < MENU_MAX_LEVEL)
+	    {
+		g_menu_level++;
+		g_menu_idx = 0;
+
+		g_menu_prev = g_menu;
+	    }
+
+	    g_menu_action = g_menu[g_menu_idx]->action;
+
+	    /* end of threatment, re-enable the button for interrupt */
+	    g_button = NO_BUTTON;
+	}
+	break;
+	case UP_BUTTON:
+	{
+	    g_button_selected = g_button;
+
+	    if (g_menu_level > 0)
+	    {
+		g_menu_level--;
+		g_menu_idx = 0;
+		g_menu = g_menu_prev;
+
+		/* clear LCD before displaying new menu or action */
+		g_lcd.clear();
+		g_lcd.print(g_menu[g_menu_idx]->name);
+	    }
+
+	    /* end of threatment, re-enable the button for interrupt */
+	    g_button = NO_BUTTON;
+	}
+	break;
+	case DOWN_BUTTON:
+	{
 	    /* end of threatment, re-enable the button for interrupt */
 	    g_button = NO_BUTTON;
 	}
 	break;
 	default :
+	{
+	    /* end of threatment, re-enable the button for interrupt */
+	    g_button = NO_BUTTON;
+	}
 	break;
     }
-    /* save selection */
-    *menu_index = idx;
 }
 
 void process_menu(void)
 {
-    if (g_menu_selected == MENU_MAIN)
+    if (g_process_menu)
     {
-	gestion_menu(&g_menu_main_index, MENU_MAIN_END);
-	switch (g_button_selected)
+	gestion_menu();
+
+	if (g_button_selected == MIDDLE_BUTTON)
 	{
-	    case MID_BUTTON:
+	    switch (g_menu_action)
 	    {
-		switch (g_menu_main_index)
+		case MENU_ACTION_PROGRAM:
 		{
-		    case MENU_MAIN_DETECT:
-		    {
-			g_action = ACTION_MISC_DETECTION;
-			g_action_detection   = 2;
-		    }
-		    break;
-		    case MENU_MAIN_MOTOR:
-		    {
-			/* in this case, there's an other menu */
-			g_menu_selected = MENU_MOTOR;
-
-			/* clear LCD before displaying new menu or action */
-			g_lcd.clear();
-			g_lcd.print(g_menu_motor[g_menu_motor_index]);
-		    }
-		    break;
-		    case MENU_MAIN_TEMP:
-		    {
-			g_action = ACTION_MISC_TEMPERATURE;
-			g_action_temperature = 0;
-		    }
-		    break;
-		    case MENU_MAIN_PROG:
-		    {
-			/* in this case, there's an other menu */
-			g_menu_selected = MENU_PROG;
-
-			/* clear LCD before displaying new menu or action */
-			g_lcd.clear();
-			g_lcd.print(g_menu_prog[g_menu_prog_index]);
-		    }
-		    break;
-		}
-	    }
-	    break;
-	    case LEFT_BUTTON:
-	    case RIGHT_BUTTON:
-	    {
-		g_action = ACTION_NONE;
-		g_lcd.clear();
-		g_lcd.print(g_menu_main[g_menu_main_index]);
-	    }
-	    break;
-	    default :
-	    break;
-	}
-    }
-
-    else if (g_menu_selected == MENU_MOTOR)
-    {
-	gestion_menu(&g_menu_motor_index, MENU_MOTOR_END);
-	switch (g_button_selected)
-	{
-	    case MID_BUTTON:
-	    {
-		switch (g_menu_motor_index)
-		{
-		    case MENU_MOTOR_MOVE:
-		    {
-			/* in this case, there's an other menu */
-			g_menu_selected = MENU_MOVE;
-
-			/* clear LCD before displaying new menu or action */
-			g_lcd.clear();
-			g_lcd.print(g_menu_speed[0]);
-			g_lcd.setCursor(0, 1);
-			g_lcd.print("Speed L = ");g_lcd.print(g_motor_left_speed);
-			/* g_lcd.print(" Speed R = ");g_lcd.print(g_motor_right_speed); */
-		    }
-		    break;
-		    case MENU_MOTOR_DIR:
-		    {
-			/* in this case, there's an other menu */
-			g_menu_selected = MENU_DIR;
-
-			/* clear LCD before displaying new menu or action */
-			g_lcd.clear();
-			g_lcd.print(g_menu_dir[0]);
-			g_lcd.setCursor(0, 1);
-			g_lcd.print("Speed L = ");g_lcd.print(g_motor_left_speed);
-			/* g_lcd.print(" Speed R = ");g_lcd.print(g_motor_right_speed); */
-		    }
-		    break;
-		    case MENU_MOTOR_OBSTACLE:
-		    {
-			g_action = ACTION_MOTOR_OBSTACLE;
-			g_action_detection    = 2;
-		    }
-		    break;
-		    case MENU_MOTOR_MAIN:
-		    {
-			/* in this case, there's an other menu */
-			g_menu_selected = MENU_MAIN;
-
-			/* clear LCD before displaying new menu or action */
-			g_lcd.clear();
-			g_lcd.print(g_menu_main[g_menu_main_index]);
-		    }
-		    break;
-		}
-	    }
-	    break;
-	    case LEFT_BUTTON:
-	    case RIGHT_BUTTON:
-	    {
-		g_action = ACTION_NONE;
-		g_lcd.clear();
-		g_lcd.print(g_menu_motor[g_menu_motor_index]);
-	    }
-	    break;
-	    default :
-	    break;
-	}
-    }
-    else if (g_menu_selected == MENU_MOVE)
-    {
-	/* Check which Button is hold */
-	switch (g_button)
-	{
-	    case LEFT_BUTTON:
-	    {
-		g_motor_left_speed += 2;
-		g_motor_left.setSpeed(g_motor_left_speed);
-		g_lcd.setCursor(0, 1);
-		g_lcd.print("Speed L = ");g_lcd.print(g_motor_left_speed);
-		/* g_lcd.print(" Speed R = ");g_lcd.print(g_motor_right_speed); */
-
-		/* end of threatment, re-enable the button for interrupt */
-		g_button = NO_BUTTON;
-	    }
-	    break;
-	    case RIGHT_BUTTON:
-	    {
-		g_motor_left_speed -= 2;
-		g_motor_left.setSpeed(g_motor_left_speed);
-		g_lcd.setCursor(0, 1);
-		g_lcd.print("Speed L = ");g_lcd.print(g_motor_left_speed);
-		/* g_lcd.print(" Speed R = ");g_lcd.print(g_motor_right_speed); */
-
-		/* end of threatment, re-enable the button for interrupt */
-		g_button = NO_BUTTON;
-	    }
-	    break;
-	    case MID_BUTTON:
-	    {
-		if (g_action != ACTION_MOVE_STOP)
-		{
-		    g_action = ACTION_MOVE_STOP;
-
-		    g_lcd.setCursor(0, 1);
-		    g_lcd.print("Stop");
-		}
-		else
-		{
-		    g_action = ACTION_NONE;
-
-		    /* in this case, there's an other menu */
-		    g_menu_selected = MENU_MOTOR;
+		    g_menu = &g_menu_prog;
 
 		    /* clear LCD before displaying new menu or action */
 		    g_lcd.clear();
-		    g_lcd.print(g_menu_motor[g_menu_motor_index]);
-		}
-
-		/* end of threatment, re-enable the button for interrupt */
-		g_button = NO_BUTTON;
-	    }
-	    break;
-	}
-    }
-    else if (g_menu_selected == MENU_DIR)
-    {
-	/* Check which Button is hold */
-	switch (g_button)
-	{
-	    case LEFT_BUTTON:
-	    {
-		g_action = ACTION_MOVE_REVERSE;
-
-		g_motor_left.setSpeed(g_motor_left_speed);
-		g_lcd.setCursor(0, 1);
-		g_lcd.print("Reverse");
-		/* g_lcd.print(" Speed R = ");g_lcd.print(g_motor_right_speed); */
-
-		/* end of threatment, re-enable the button for interrupt */
-		g_button = NO_BUTTON;
-
-	    }
-	    break;
-	    case RIGHT_BUTTON:
-	    {
-		g_action = ACTION_MOVE_FORWARD;
-
-		g_motor_left.setSpeed(g_motor_left_speed);
-		g_lcd.setCursor(0, 1);
-		g_lcd.print("Forward");
-		/* g_lcd.print(" Speed R = ");g_lcd.print(g_motor_right_speed); */
-
-		/* end of threatment, re-enable the button for interrupt */
-		g_button = NO_BUTTON;
-	    }
-	    break;
-	    case MID_BUTTON:
-	    {
-		/* in this case, there's an other menu */
-		g_menu_selected = MENU_MOTOR;
-
-		/* clear LCD before displaying new menu or action */
-		g_lcd.clear();
-		g_lcd.print(g_menu_motor[g_menu_motor_index]);
-
-		/* end of threatment, re-enable the button for interrupt */
-		g_button = NO_BUTTON;
-	    }
-	    break;
-	}
-    }
-    else if (g_menu_selected == MENU_PROG)
-    {
-	gestion_menu(&g_menu_prog_index, MENU_MAIN_END);
-	switch (g_button_selected)
-	{
-	    case MID_BUTTON:
-	    {
-		switch (g_menu_prog_index)
+		    g_lcd.print(g_menu[g_menu_idx]->name);
+		}break;
+		case MENU_ACTION_MOTOR:
 		{
-		    case MENU_PROG_1:
-		    {
-			g_action = ACTION_PROG_1;
-			g_action_detection = 2;
-			g_motor_left_count = 0;
-		    }
-		    break;
-		    case MENU_PROG_2:
-		    {
-			g_action = ACTION_PROG_2;
-			g_action_detection = 2;
-			g_motor_left_count = 0;
-		    }
-		    break;
-		    case MENU_PROG_3:
-		    {
-			g_action = ACTION_PROG_3;
-		    }
-		    break;
-		    case MENU_PROG_MAIN:
-		    {
-			/* in this case, there's an other menu */
-			g_menu_selected = MENU_MAIN;
+		    g_menu = &g_menu_prog;
 
-			/* clear LCD before displaying new menu or action */
-			g_lcd.clear();
-			g_lcd.print(g_menu_main[g_menu_main_index]);
-		    }
-		    break;
+		    /* clear LCD before displaying new menu or action */
+		    g_lcd.clear();
+		    g_lcd.print(g_menu[g_menu_idx]->name);
+		}break;
+		case MENU_ACTION_DETECTION:
+		{
+		    g_process_action = PROCESS_ACTION_DETECTION;
+		    g_action_detection   = 2;
+
+		}break;
+		case MENU_ACTION_TEMPERATURE:
+		{
+		    g_process_action = PROCESS_ACTION_TEMPERATURE;
+		    g_action_temperature = 0;
+		}break;
+		case MENU_ACTION_PROG1:
+		{
+		    g_process_action = PROCESS_ACTION_PROG1;
+		}break;
+		case MENU_ACTION_PROG2:
+		{
+		    g_process_action = PROCESS_ACTION_PROG2;
+		}break;
+		case MENU_ACTION_PROG3:
+		{
+		    g_process_action = PROCESS_ACTION_PROG3;
+		}break;
+		case MENU_ACTION_SPEED:
+		{
+		    g_menu = &g_menu_speed;
+
+		    /* clear LCD before displaying new menu or action */
+		    g_lcd.clear();
+		    g_lcd.print(g_menu[g_menu_idx]->name);
+		    g_process_action = PROCESS_ACTION_SPEED;
+		}break;
+		case MENU_ACTION_DIR:
+		{
+		    g_menu = &g_menu_dir;
+
+		    /* clear LCD before displaying new menu or action */
+		    g_lcd.clear();
+		    g_lcd.print(g_menu[g_menu_idx]->name);
+		    g_process_action = PROCESS_ACTION_DIR;
+		}
+		case MENU_ACTION_OBSTACLE:
+		{
+		    g_process_action = PROCESS_ACTION_OBSTACLE;
 		}
 	    }
-	    break;
-	    case LEFT_BUTTON:
-	    case RIGHT_BUTTON:
-	    {
- 		g_action = ACTION_NONE;
-		g_lcd.clear();
-		g_lcd.print(g_menu_prog[g_menu_prog_index]);
-	    }
-	    break;
-	    default :
-	    break;
 	}
     }
 }
@@ -493,22 +447,17 @@ void process_action(void)
 {
     int value;
 
-    switch (g_action)
+    if (g_process_action)
     {
-	case ACTION_NONE:
+	if (g_process_action == PROCESS_ACTION_DETECTION)
 	{
-	    return;
-	}
-	break;
-	case ACTION_MISC_DETECTION:
-	{
-	    value = digitalRead(A5);
+	    value = digitalRead(PIN_DETECTION);
 	    if (value == 0)
 	    {
 		if (g_action_detection != value)
 		{
 		    g_lcd.setCursor(0, 1);
-		    g_lcd.print("Obstacle  !!!   ");
+		    g_lcd.print("Obstacle  ! ");
 		}
 	    }
 	    else
@@ -521,10 +470,9 @@ void process_action(void)
 	    }
 	    g_action_detection = value;
 	}
-	break;
-	case ACTION_MISC_TEMPERATURE:
+	else if (g_process_action == PROCESS_ACTION_TEMPERATURE)
 	{
-	    value = (5.0 * analogRead(A4) * 100.0) / 1024;
+	    value = (5.0 * analogRead(PIN_TEMPERATURE) * 100.0) / 1024;
 
 	    if (g_action_temperature != value)
 	    {
@@ -536,15 +484,14 @@ void process_action(void)
 
 	    g_action_temperature = value;
 	}
-	break;
-	case ACTION_MOTOR_OBSTACLE:
+	else if (g_process_action == PROCESS_ACTION_OBSTACLE)
 	{
 	    if (value == 0)
 	    {
 		if (g_action_detection != value)
 		{
 		    g_lcd.setCursor(0, 1);
-		    g_lcd.print("Stop  !!!       ");
+		    g_lcd.print("Stop  !       ");
 		}
 	    }
 	    else
@@ -556,210 +503,120 @@ void process_action(void)
 		}
 	    }
 	    g_action_detection = value;
-	}
-	break;
-	case ACTION_MOVE_STOP:
-	{
 
 	}
-	break;
-	case ACTION_MOVE_REVERSE:
+	else if (g_process_action == PROCESS_ACTION_SPEED)
 	{
-	    g_motor_left.step(-1);
-	}
-	break;
-	case ACTION_MOVE_FORWARD:
-	{
-	    g_motor_left.step(1);
-	}
-	break;
-	case ACTION_PROG_1:
-	{
-	    value = digitalRead(A5);
-	    if (value == 0)
+	    /* Check which Button is hold */
+	    switch (g_button)
 	    {
-		if (g_action_detection != value)
+		case LEFT_BUTTON:
+		{
+		    if (g_motor_speed < 255 )
+			g_motor_speed++;
+
+		    g_lcd.setCursor(0, 1);
+		    g_lcd.print("                ");
+		    g_lcd.setCursor(0, 1);
+		    g_lcd.print("Speed = ");
+		    g_lcd.print(g_motor_speed);
+
+		    /* end of threatment, re-enable the button for interrupt */
+		    g_button = NO_BUTTON;
+		}
+		break;
+		case RIGHT_BUTTON:
+		{
+		    if (g_motor_speed > 0)
+			g_motor_speed--;
+
+		    g_lcd.setCursor(0, 1);
+		    g_lcd.print("                ");
+		    g_lcd.setCursor(0, 1);
+		    g_lcd.print("Speed = ");
+		    g_lcd.print(g_motor_speed);
+
+		    /* end of threatment, re-enable the button for interrupt */
+		    g_button = NO_BUTTON;
+		}
+		break;
+		case MIDDLE_BUTTON:
 		{
 		    g_lcd.setCursor(0, 1);
-		    g_lcd.print("Obstacle! ");g_lcd.print(g_motor_left_count);
-		}
-	    }
-	    else
-	    {
-		g_motor_left.step(10);
-		g_motor_left_count+=10;
-
-		g_lcd.setCursor(0, 1);
-		g_lcd.print("Running.. ");g_lcd.print(g_motor_left_count);
-	    }
-	    g_action_detection = value;
-	}
-	break;
-	case ACTION_PROG_2:
-	{
-	    value = digitalRead(A5);
-	    if (value == 0)
-	    {
-		if (g_action_detection != value)
-		{
+		    g_lcd.print("                ");
 		    g_lcd.setCursor(0, 1);
-		    g_lcd.print("Obstacle ! ");g_lcd.print(g_motor_left_count);
+		    g_lcd.print("Stop !! ");
+
+		    /* end of threatment, re-enable the button for interrupt */
+		    g_button = NO_BUTTON;
+		}
+		break;
+	    }
+	    else if (g_process_action == PROCESS_ACTION_DIR)
+	    {
+		/* Check which Button is hold */
+		switch (g_button)
+		{
+		    case LEFT_BUTTON:
+		    {
+
+
+			/* end of threatment, re-enable the button for interrupt */
+			g_button = NO_BUTTON;
+		    }
+		    break;
+		    case RIGHT_BUTTON:
+		    {
+
+			/* end of threatment, re-enable the button for interrupt */
+			g_button = NO_BUTTON;
+		    }
+		    break;
 		}
 	    }
-	    else
-	    {
-		g_lcd.setCursor(0, 1);
-		g_lcd.print("Starting.. ");g_lcd.print(g_motor_left_count);
-		g_motor_left.step(400);
-		g_motor_left_count++;
-
-		g_lcd.setCursor(0, 1);
-		g_lcd.print("Running... ");g_lcd.print(g_motor_left_count);
-	    }
-	    g_action_detection = value;
 	}
-	break;
 
-	default:
-	break;
     }
 }
+
+void process_serial_motor(void)
+{
+    char value;
+
+    if (g_process_serial_motor)
+    {
+	/* if we get a valid char, read char */
+	if (Serial.available() > 0)
+	{
+	    /* get incoming byte: */
+	    value = Serial.read();
+
+	}
+    }
+}
+
+void process_serial_sound(void)
+{
+    char value;
+
+    if (g_process_serial_sound)
+    {
+	/* if we get a valid char, read char */
+	if (Serial1.available() > 0)
+	{
+	    /* get incoming byte: */
+	    value = Serial.read();
+
+	}
+    }
+}
+
+
 
 void loop(void)
 {
     process_menu();
-
     process_action();
+    process_serial_motor();
+    process_serial_sound();
 }
-
-#if 0
-
-void looper()
-{
-    int value;
-    int positionCounter;
-
-
-    if ((g_select == LEFT_BUTTON) || (g_select == RIGHT_BUTTON))
-    {
-	lcd.clear();
-
-	if (g_text_menu == 0)
-	else if (g_text_menu == 1)
-	    g_lcd.print("2) Moteur avance");
-	else if (g_text_menu == 2)
-	    g_lcd.print("3) Moteur recule");
-	else if (g_text_menu == 3)
-	    g_lcd.print("4) Moteur step");
-	else if (g_text_menu == 4)
-	    g_lcd.print("5) Menu vide");
-	else if (g_text_menu == LAST_TEXT_MENU)
-	    g_lcd.print("6) Menu vide");
-
-	g_select = NO_BUTTON;
-    }
-
-    if (g_select == MID_BUTTON)
-    {
-	/* Manage obstacle detection */
-	if (g_selected == 0)
-	{
-	    value = digitalRead(A5);
-	    if (value == 0)
-	    {
-		if (g_last_value != value)
-		{
-		    g_lcd.clear();
-		    g_lcd.print("Obstacle  !!!");
-		}
-	    }
-	    else
-	    {
-		if (g_last_value != value)
-		{
-		    lcd.clear();
-		}
-	    }
-	    g_last_value = value;
-	    delay(50);
-	}
-	else if (g_selected == 1)
-	{
-	    myStepper.step(100);
-	    g_selected = -1;
-	}
-	else if (g_selected == 2)
-	{
-	    myStepper.step(-100);
-	    g_selected = -1;
-	}
-	else if (g_selected == 3)
-	{
-	    myStepper.step(1);
-	    g_selected = -1;
-	}
-    }
-}
-
-void toto ()
-{
-    int value;
-    if (Serial.available() > 0)
-    {
-        g_car = Serial.read();
-        if (g_car =='*')
-        {
-	    lcd.clear();
-	    g_col = 0;
-	    g_line = 0;
-        }
-        else if ((g_car == 8) && (g_col > 0))
-        {
-	    g_col--;
-	    lcd.setCursor(g_col, g_line);
-	    lcd.print(" ");
-	    g_col++;
-        }
-        else if (g_car == '!')
-        {
-	    lcd.clear();
-	    g_col = 0;
-	    g_line = 0;
-	    lcd.setCursor(g_col, g_line);
-	    value = analogRead(A5);
-	    /*
-		value = (5.0 * analogRead(A5) * 100.0) / 1024;
-		g_analog_value[M5] = value;
-
-		Serial.print("--> Temperature value = ");
-		Serial.print(g_analog_value[M5]);
-		Serial.print(" C\r\n");
-	    */
-	    lcd.print(value);
-	    lcd.print(" C");
-        }
-	else
-        {
-	    lcd.setCursor(g_col, g_line);
-	    lcd.print(g_car);
-	    g_col++;
-        }
-        if (g_col == 16 )
-        {
-	    g_col = 0;
-	    if (g_line == 1)
-	    {
-		g_line = 0;
-	    }
-	    else
-	    {
-		g_line = 1;
-	    }
-        }
-    }
-	    lcd.clear();
-	    value = analogRead(A5) / 10;
-	    lcd.print(value);
-	    delay(200);
-}
-#endif
