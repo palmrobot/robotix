@@ -13,8 +13,8 @@
 #define PIN_DOWN_BUTTON		5
 
 /* sensors */
-#define PIN_DETECTION		A5
-#define PIN_TEMPERATURE		A4
+#define PIN_DETECTION		A1
+#define PIN_TEMPERATURE		A0
 
 /* LCD */
 #define PIN_LCD_RS		38
@@ -48,17 +48,19 @@ unsigned char g_lcd_line;
 /********************************************************/
 /*      Serial Motor definitions                        */
 /********************************************************/
-#define PROCESS_COMMAND_STOP		0x01 /* [0x01 Stop] */
-#define PROCESS_COMMAND_FORWARD		0x02 /* [0x02 Forward] [Speed] [distance in cm] */
-#define PROCESS_COMMAND_BACKWARD	0x03 /* [0x03 Backward] [Speed] [distance in cm] */
-#define PROCESS_COMMAND_ROTATE_LEFT	0x04 /* [0x04 Rotate Left] [Speed] [degrees]   */
-#define PROCESS_COMMAND_ROTATE_RIGHT	0x05 /* [0x05 Rotate Right] [Speed] [degrees]  */
-#define PROCESS_COMMAND_TEST		0x06 /* [0x06 Test] [Nb of bytes] [byte 1] [byte 2] ... [byte n] */
-#define PROCESS_COMMAND_GET_COUNTERS	0x07 /* [0x07 Get counters] */
+#define MOTOR_SEND_COMMAND_STOP		0x01 /* [0x01 Stop] */
+#define MOTOR_SEND_COMMAND_FORWARD	0x02 /* [0x02 Forward] [Speed] [distance in cm] */
+#define MOTOR_SEND_COMMAND_BACKWARD	0x03 /* [0x03 Backward] [Speed] [distance in cm] */
+#define MOTOR_SEND_COMMAND_ROTATE_LEFT	0x04 /* [0x04 Rotate Left] [Speed] [degrees]   */
+#define MOTOR_SEND_COMMAND_ROTATE_RIGHT	0x05 /* [0x05 Rotate Right] [Speed] [degrees]  */
+#define MOTOR_SEND_COMMAND_TEST		0x06 /* [0x06 Test] [Nb of bytes] [byte 1] [byte 2] ... [byte n] */
+#define MOTOR_SEND_COMMAND_COUNTERS	0x07 /* [0x07 Get counters] */
 
-#define PROCESS_COMMAND_SEND_COUNTERS	0x88 /* [0x88 Send counters] [Left in cm] [right in cm] */
+#define MOTOR_RECV_COMMAND_SEND_COUNTERS	0x88 /* [0x88 Send counters] [Left in cm] [right in cm] */
 
-
+#define CMD_MOTOR_MAX			10
+unsigned char g_send_motor[CMD_MOTOR_MAX];
+unsigned char g_recv_motor[CMD_MOTOR_MAX];
 
 /********************************************************/
 /*      Menus definitions                               */
@@ -75,11 +77,10 @@ unsigned char g_lcd_line;
 #define MENU_ACTION_SPEED		8
 #define MENU_ACTION_DIR			9
 #define MENU_ACTION_OBSTACLE		10
-
-
-#define MENU_ACTION_SPEED		8
-
-
+#define MENU_ACTION_RUN			11
+#define MENU_ACTION_ROTATE		12
+#define MENU_ACTION_SQUARE		13
+#define MENU_ACTION_DETECT_BACK		14
 
 #define ACTION_MOVE_REVERSE	1
 #define ACTION_MOVE_STOP	2
@@ -88,8 +89,6 @@ unsigned char g_lcd_line;
 #define ACTION_PROG_1		7
 #define ACTION_PROG_2		8
 #define ACTION_PROG_3		9
-
-
 
 struct
 {
@@ -110,7 +109,8 @@ enum
 
 
 menu_t g_menu_main[] = { {"Detection       ", 0, MENU_MAIN_DETECT, MENU_ACTION_DETECTION},
-			 {"Motor           ", 0, MENU_MAIN_MOTOR, MENU_ACTION_MOTOR},
+			 {"Motor Settings  ", 0, MENU_MAIN_MOTOR, MENU_ACTION_MOTOR},
+			 {"Motor Move      ", 0, MENU_MAIN_MOTOR_MOVE, MENU_ACTION_MOTOR_MOVE},
 			 {"Temperature     ", 0, MENU_MAIN_TEMP, MENU_ACTION_TEMPERATURE},
 			 {"Program         ", 0, MENU_MAIN_PROG, MENU_ACTION_PROGRAM},
 			 {"", 0, MENU_MAIN_END, MENU_ACTION_NONE}};
@@ -144,6 +144,23 @@ menu_t g_menu_motor[] = { {"Speed           ", 1, MENU_MOTOR_SPEED, MENU_ACTION_
 
 enum
 {
+    MENU_MOTOR_MOVE_RUN = 0,
+    MENU_MOTOR_MOVE_ROTATE,
+    MENU_MOTOR_MOVE_SQUARE,
+    MENU_MOTOR_MOVE_DETECT_BACK,
+    MENU_MOTOR_MOVE_END,
+} menu_motor_move_e;
+
+menu_t g_menu_motor_move[] = { {"Move           ", 1, MENU_MOTOR_MOVE_RUN, MENU_ACTION_RUN},
+			       {"Rotate         ", 1, MENU_MOTOR_MOVE_ROTATE, MENU_ACTION_ROTATE},
+			       {"Square         ", 1, MENU_MOTOR_MOVE_SQUARE, MENU_ACTION_SQUARE},
+			       {"Detect & back  ", 1, MENU_MOTOR_MOVE_DETECT_BACK, MENU_ACTION_DETECT_BACK},
+			       {"",1, MENU_MOTOR_MOVE_END, MENU_ACTION_NONE}};
+
+
+
+enum
+{
     MENU_SPEED_PLUS = 0,
     MENU_SPEED_STOP,
     MENU_SPEED_MINUS,
@@ -160,7 +177,7 @@ enum
     MENU_DIR_END = 1,
 } menu_dir_e;
 
-menu_t g_menu_dir[] = {{"Rever Forwd" , 2, MENU_DIR_REVERSE, MENU_ACTION_NONE},
+menu_t g_menu_dir[] = {{"Back Forward" , 2, MENU_DIR_REVERSE, MENU_ACTION_NONE},
 		       {"", 2, MENU_DIR_END, MENU_ACTION_NONE}};
 
 unsigned char g_menu_idx;
@@ -168,7 +185,6 @@ unsigned char g_menu_level;
 unsigned char g_menu_action;
 menu_t *g_menu;
 menu_t *g_menu_prev;
-
 
 
 /********************************************************/
@@ -188,8 +204,12 @@ unsigned char g_process_menu;
 #define PROCESS_ACTION_OBSTACLE			6
 #define PROCESS_ACTION_SPEED			7
 #define PROCESS_ACTION_DIR			8
-
+#define PROCESS_ACTION_RUN			9
+#define PROCESS_ACTION_ROTATE			10
+#define PROCESS_ACTION_SQUARE			11
+#define PROCESS_ACTION_DETECT_BACK		12
 unsigned char g_process_action;
+
 
 /* process SERIAL MOTOR */
 unsigned char g_process_serial_motor;
@@ -201,9 +221,23 @@ unsigned char g_process_serial_sound;
 /********************************************************/
 /*      Global definitions                              */
 /********************************************************/
+#define MOTOR_DIRECTION_FORWARD			0
+#define MOTOR_DIRECTION_BACKWARD		1
+unsigned char g_motor_left_direction;
+
+#define MOTOR_STATE_END				1
+unsigned char g_state_motor;
+
+
 unsigned char g_motor_speed;
+unsigned char g_motor_distance;
+unsigned char g_motor_curr_dist;
+unsigned char g_motor_degrees;
+
 unsigned char g_action_detection;
 unsigned char g_action_temperature;
+unsigned char g_action_run;
+
 
 
 void setup()
@@ -252,6 +286,23 @@ void setup()
     g_process_serial_motor = 1;
     g_process_serial_sound = 1;
 
+    /* Motor state */
+    g_state_motor = 0;
+
+    /* Sound state */
+
+
+    /* Global stuff*/
+    g_action_detection   = 0;
+    g_action_temperature = 0;
+    g_action_run	 = 0;
+    g_motor_speed	 = 0;
+    g_motor_left_direction = 0;
+    g_motor_right_direction = 0;
+    g_motor_distance	= 0;
+    g_motor_degrees	= 0;
+    g_motor_curr_dist	= 0;
+
     /* start, and display first menu entry */
     g_lcd.clear();
     g_lcd.print(g_menu[0]);
@@ -273,6 +324,36 @@ void interrupt_call(void)
 	else if (digitalRead(PIN_DOWN_BUTTON))
 	    g_button = DOWN_BUTTON;
     }
+}
+
+
+void motor_forward(unsigned char distance, unsigned char speed)
+{
+    g_motor_left_direction	= MOTOR_DIRECTION_FORWARD;
+    g_motor_speed		= speed;
+    g_motor_distance		= distance;
+
+    g_send_motor[0] = MOTOR_SEND_COMMAND_FORWARD;
+    g_send_motor[1] = g_motor_speed;
+    g_send_motor[2] = g_motor_distance;
+    g_send_motor[3] = 0;
+
+    Serial.write(g_send_motor);
+}
+
+
+void motor_backward(unsigned char distance, unsigned char speed)
+{
+    g_motor_left_direction	= MOTOR_DIRECTION_BACKWARD;
+    g_motor_speed		= speed;
+    g_motor_distance		= distance;
+
+    g_send_motor[0] = MOTOR_SEND_COMMAND_BACKWARD;
+    g_send_motor[1] = g_motor_speed;
+    g_send_motor[2] = g_motor_distance;
+    g_send_motor[3] = 0;
+
+    Serial.write(g_send_motor);
 }
 
 void gestion_menu(void)
@@ -354,6 +435,8 @@ void gestion_menu(void)
 	break;
 	case DOWN_BUTTON:
 	{
+	    g_button_selected = g_button;
+
 	    /* end of threatment, re-enable the button for interrupt */
 	    g_button = NO_BUTTON;
 	}
@@ -387,7 +470,7 @@ void process_menu(void)
 		}break;
 		case MENU_ACTION_MOTOR:
 		{
-		    g_menu = &g_menu_prog;
+		    g_menu = &g_menu_motor;
 
 		    /* clear LCD before displaying new menu or action */
 		    g_lcd.clear();
@@ -424,6 +507,7 @@ void process_menu(void)
 		    g_lcd.clear();
 		    g_lcd.print(g_menu[g_menu_idx]->name);
 		    g_process_action = PROCESS_ACTION_SPEED;
+		    g_process_menu = 0;
 		}break;
 		case MENU_ACTION_DIR:
 		{
@@ -433,11 +517,54 @@ void process_menu(void)
 		    g_lcd.clear();
 		    g_lcd.print(g_menu[g_menu_idx]->name);
 		    g_process_action = PROCESS_ACTION_DIR;
-		}
+		    g_process_menu = 0;
+		}break;
 		case MENU_ACTION_OBSTACLE:
 		{
 		    g_process_action = PROCESS_ACTION_OBSTACLE;
-		}
+		}break;
+		case MENU_ACTION_RUN:
+		{
+		    if (g_motor_left_direction == MOTOR_DIRECTION_FORWARD)
+		    {
+			g_send_motor[0] = MOTOR_SEND_COMMAND_FORWARD;
+		    }
+		    else
+		    {
+			g_send_motor[0] = MOTOR_SEND_COMMAND_BACKWARD;
+		    }
+		    g_send_motor[1] = g_motor_speed;
+		    g_motor_distance = 20;
+		    g_send_motor[2] = g_motor_distance;
+		    g_send_motor[3] = 0;
+		    Serial.write(g_send_motor);
+
+		    g_process_action = PROCESS_ACTION_RUN;
+		    g_process_menu = 0;
+		}break;
+		case MENU_ACTION_ROTATE:
+		{
+		    g_send_motor[0] = MOTOR_SEND_COMMAND_ROTATE_RIGHT;
+		    g_send_motor[1] = g_motor_speed;
+		    g_motor_degrees = 90;
+		    g_send_motor[2] = g_motor_degrees;
+		    g_send_motor[3] = 0;
+		    Serial.write(g_send_motor);
+
+		    g_process_action = PROCESS_ACTION_ROTATE;
+		    g_process_menu = 0;
+		}break;
+		case MENU_ACTION_SQUARE:
+		{
+		    g_process_action = PROCESS_ACTION_SQUARE;
+		    g_process_menu = 0;
+		}break;
+		case MENU_ACTION_DETECT_BACK:
+		{
+		    motor_forward(0);
+		    g_process_action = PROCESS_ACTION_DETECT_BACK;
+		    g_process_menu = 0;
+		}break;
 	    }
 	}
     }
@@ -549,33 +676,157 @@ void process_action(void)
 
 		    /* end of threatment, re-enable the button for interrupt */
 		    g_button = NO_BUTTON;
+
+		    g_process_menu = 1;
 		}
 		break;
-	    }
-	    else if (g_process_action == PROCESS_ACTION_DIR)
-	    {
-		/* Check which Button is hold */
-		switch (g_button)
+		case UP_BUTTON:
 		{
-		    case LEFT_BUTTON:
+		    /* end of threatment, re-enable the button for interrupt */
+		    g_button = NO_BUTTON;
+
+		    if (g_menu_level > 0)
 		    {
+			g_menu_level--;
+			g_menu_idx = 0;
+			g_menu = g_menu_prev;
 
-
-			/* end of threatment, re-enable the button for interrupt */
-			g_button = NO_BUTTON;
+			/* clear LCD before displaying new menu or action */
+			g_lcd.clear();
+			g_lcd.print(g_menu[g_menu_idx]->name);
+			g_process_menu = 1;
 		    }
-		    break;
-		    case RIGHT_BUTTON:
+		    g_process_menu = 1;
+		}
+		break;
+		default:
+		{
+		    /* end of threatment, re-enable the button for interrupt */
+		    g_button = NO_BUTTON;
+		}break;
+	    }
+	}
+	else if (g_process_action == PROCESS_ACTION_DIR)
+	{
+	    /* Check which Button is hold */
+	    switch (g_button)
+	    {
+		case LEFT_BUTTON:
+		{
+		    g_motor_left_direction = MOTOR_DIRECTION_BACKWARD;
+		    g_motor_right_direction = MOTOR_DIRECTION_BACKWARD;
+
+		    g_lcd.setCursor(0, 1);
+		    g_lcd.print("New dir Backward");
+
+		    /* end of threatment, re-enable the button for interrupt */
+		    g_button = NO_BUTTON;
+		}
+		break;
+		case RIGHT_BUTTON:
+		{
+		    g_motor_left_direction = MOTOR_DIRECTION_FORWARD;
+		    g_motor_right_direction = MOTOR_DIRECTION_FORWARD;
+
+		    g_lcd.setCursor(0, 1);
+		    g_lcd.print("New dir Forward ");
+
+		    /* end of threatment, re-enable the button for interrupt */
+		    g_button = NO_BUTTON;
+		}
+		break;
+		case UP_BUTTON:
+		{
+		    if (g_menu_level > 0)
 		    {
+			g_menu_level--;
+			g_menu_idx = 0;
+			g_menu = g_menu_prev;
 
-			/* end of threatment, re-enable the button for interrupt */
-			g_button = NO_BUTTON;
+			/* clear LCD before displaying new menu or action */
+			g_lcd.clear();
+			g_lcd.print(g_menu[g_menu_idx]->name);
+			g_process_menu = 1;
 		    }
-		    break;
+		    g_process_menu = 1;
+
+		    /* end of threatment, re-enable the button for interrupt */
+		    g_button = NO_BUTTON;
+		}
+		break;
+		default:
+		{
+		    /* end of threatment, re-enable the button for interrupt */
+		    g_button = NO_BUTTON;
+		}break;
+	    }
+	}
+	else if (g_process_action == PROCESS_ACTION_RUN)
+	{
+	    if (g_state_motor == MOTOR_STATE_END)
+	    {
+		if (g_menu_level > 0)
+		{
+		    g_menu_level--;
+		    g_menu_idx = 0;
+		    g_menu = g_menu_prev;
+
+		    /* clear LCD before displaying new menu or action */
+		    g_lcd.clear();
+		    g_lcd.print(g_menu[g_menu_idx]->name);
+		    g_process_menu = 1;
+		}
+		g_process_menu = 1;
+	    }
+	    else if(g_state_motor == MOTOR_STATE_DIST)
+	    {
+		if (g_action_run == 0}
+		{
+		    g_lcd.setCursor(0, 0);
+		    g_lcd.print("Speed = ");  g_lcd.print(g_motor_speed);
+		    g_lcd.setCursor(0, 1);
+		    g_lcd.print("Dist = "); g_lcd.print(g_motor_curr_dist);g_lcd.print("cm  ");
+		}
+		else
+		{
+		    g_lcd.setCursor(7, 1);
+		    g_lcd.print(g_motor_curr_dist);g_lcd.print("cm  ");
 		}
 	    }
 	}
+	else if (g_process_action == PROCESS_ACTION_ROTATE)
+	{
+	    if (g_state_motor == MOTOR_STATE_END)
+	    {
+		if (g_menu_level > 0)
+		{
+		    g_menu_level--;
+		    g_menu_idx = 0;
+		    g_menu = g_menu_prev;
 
+		    /* clear LCD before displaying new menu or action */
+		    g_lcd.clear();
+		    g_lcd.print(g_menu[g_menu_idx]->name);
+		    g_process_menu = 1;
+		}
+		g_process_menu = 1;
+	    }
+	    else if(g_state_motor == MOTOR_STATE_DIST)
+	    {
+		if (g_action_run == 0}
+		{
+		    g_lcd.setCursor(0, 0);
+		    g_lcd.print("Speed = ");  g_lcd.print(g_motor_speed);
+		    g_lcd.setCursor(0, 1);
+		    g_lcd.print("Dist = "); g_lcd.print(g_motor_curr_dist);g_lcd.print("cm  ");
+		}
+		else
+		{
+		    g_lcd.setCursor(7, 1);
+		    g_lcd.print(g_motor_curr_dist);g_lcd.print("cm  ");
+		}
+	    }
+	}
     }
 }
 
