@@ -1,6 +1,5 @@
-
 /********************************************************/
-/*      Motors definitions                              */
+/*      Pin  definitions                                */
 /********************************************************/
 
 #define MOT_L_SPEED	PIN3
@@ -11,24 +10,30 @@
 #define MOT_R_DIR	PIN13
 #define MOT_R_BRAKE	PIN8
 
+
+/********************************************************/
+/*      Serial Motor definitions                        */
+/********************************************************/
+#define COMMAND_SEND_COUNTERS	0x88 /* [0x88 Send counters] [Left in cm] [right in cm] */
+
+#define CMD_DATA_MAX			6
+unsigned char g_send_mother[CMD_DATA_MAX];
+unsigned char g_recv_mother[CMD_DATA_MAX];
+
 /********************************************************/
 /*      Process definitions                             */
 /********************************************************/
+unsigned char g_process_receive	        = 0;
 #define PROCESS_RECEIVE_DO_NOTHING	 0
 #define PROCESS_RECEIVE_WAIT_COMMAND	 1
 #define PROCESS_RECEIVE_WAIT_DATA_1	 2
 #define PROCESS_RECEIVE_WAIT_DATA_N	 3
 #define PROCESS_RECEIVE_WAIT_DATA_VALUE  4
 
+
+unsigned char g_process_heart;
 #define PROCESS_HEART_DISTANCE		 0x1
 
-/* 0x01 : Stop */
-/* 0x02 0xC8 0x0A : Move Forward speed 200 10cm */
-/* 0x03 0xC8 0x00 : Move Forward speed 200 until obstacle */
-/* 0x03 0xC8 0x10 : Move Backward speed 200 16cm */
-/* 0x04 0xC8 0xB4 : Rotate left speed 200 180 degrees */
-/* 0x05 0xC8 0x5A : Rotate right speed 200 90 degrees */
-/* 0x06 0x03 0x01 0x02 0x03 : Test with 3 bytes */
 
 #define PROCESS_COMMAND_STOP		0x01 /* [0x01 Stop] */
 #define PROCESS_COMMAND_FORWARD		0x02 /* [0x02 Forward] [Speed] [distance in cm] */
@@ -37,12 +42,15 @@
 #define PROCESS_COMMAND_ROTATE_RIGHT	0x05 /* [0x05 Rotate Right] [Speed] [degrees]  */
 #define PROCESS_COMMAND_TEST		0x06 /* [0x06 Test] [Nb of bytes] [byte 1] [byte 2] ... [byte n] */
 #define PROCESS_COMMAND_GET_COUNTERS	0x07 /* [0x07 Get counters] */
+unsigned char g_process_command;
 
-#define PROCESS_COMMAND_SEND_COUNTERS	0x88 /* [0x88 Send counters] [Left in cm] [right in cm] */
+
+unsigned char g_process_send;
 
 
-#define MAX_READ_DATA			6
-
+/********************************************************/
+/*      Global definitions                              */
+/********************************************************/
 
 #define CONVERT_CENTIMETERS_TO_TICS	78
 #define CONVERT_DEGREES_TO_TICS		5
@@ -51,16 +59,10 @@ unsigned int g_time_count	  = 0;
 unsigned int g_motor_left_count   = 0;
 unsigned int g_motor_right_count  = 0;
 
+unsigned char g_receive_nb       = 0;
+unsigned char g_receive_max      = 0;
+unsigned char g_receive		 = 0;
 
-unsigned char g_process_receive	        = 0;
-unsigned char g_process_receive_nb      = 0;
-unsigned char g_process_receive_max     = 0;
-unsigned char g_receive			= 0;
-unsigned char g_data[MAX_READ_DATA];
-
-unsigned char g_process_command		= 0;
-unsigned char g_process_heart		= 0;
-unsigned char g_process_send		= 0;
 
 int g_distance_left		= 0;
 int g_distance_right		= 0;
@@ -68,6 +70,7 @@ int g_distance			= 0;
 int g_distance_remaining	= 0;
 
 unsigned int g_mode		= 0;
+
 
 void interrupt_left_call(void)
 {
@@ -100,13 +103,22 @@ void setup()
     digitalWrite(MOT_R_DIR, LOW);
     digitalWrite(MOT_R_BRAKE, LOW);
 
+    /* init process states */
+    g_process_receive = 1;
+    g_process_command = 0;
+    g_process_heart   = 0;
+    g_process_send	= 0;
+
     /* Init global variables */
     g_time_count	= 0;
     g_motor_left_count  = 0;
     g_motor_right_count = 0;
 
     g_receive		= PROCESS_COMMAND_NOTHING;
-    g_data		= 0;
+
+    /* init pipes */
+    g_recv_mother[0]	= 0;
+    g_send_mother[0]	= 0;
 
     /* Init interrupt for the left Motor */
     attachInterrupt(0, interrupt_left_call, FALLING);
@@ -133,17 +145,17 @@ void process_receive(void)
 	    if (g_process_receive == PROCESS_RECEIVE_WAIT_COMMAND)
 	    {
 		g_receive = value;
-		g_data[0] = 0;
-		g_process_receive_nb  = 0;
-		g_process_receive_max = 0;
+		g_recv_mother[0] = 0;
+		g_receive_nb  = 0;
+		g_receive_max = 0;
 
 		if ((g_receive == PROCESS_COMMAND_FORWARD) ||
 		    (g_receive == PROCESS_COMMAND_BACKWARD) ||
 		    (g_receive == PROCESS_COMMAND_ROTATE_LEFT) ||
 		    (g_receive == PROCESS_COMMAND_ROTATE_RIGHT))
 		{
-		    g_process_receive_nb  = 0;
-		    g_process_receive_max = 2;
+		    g_receive_nb  = 0;
+		    g_receive_max = 2;
 
 		    /* reschedule read UART to get DATA */
 		    g_process_receive = PROCESS_RECEIVE_WAIT_DATA_N;
@@ -155,33 +167,33 @@ void process_receive(void)
 		}
 		else
 		{
-		    g_process_receive_max = 0;
+		    g_receive_max = 0;
 
 		    /* Do not reschedule read UART */
 		    g_process_receive   = 0;
-		    g_process_command	= g_data[0];
+		    g_process_command	= g_recv_mother[0];
 		}
 	    }
 	    else if (g_process_receive == PROCESS_RECEIVE_WAIT_DATA_VALUE)
 	    {
-		g_process_receive_nb  = 0;
-		g_process_receive_max = value;
-		if (g_process_receive_max > MAX_READ_DATA)
-		    g_process_receive_max = MAX_READ_DATA;
+		g_receive_nb  = 0;
+		g_receive_max = value;
+		if (g_receive_max > CMD_DATA_MAX)
+		    g_receive_max = CMD_DATA_MAX;
 
 		/* Do not reschedule read UART */
 		g_process_receive = PROCESS_RECEIVE_WAIT_DATA_N;
 	    }
 	    else if (g_process_receive == PROCESS_RECEIVE_WAIT_DATA_N)
 	    {
-		g_data[g_process_receive_nb] = value;
-		g_process_receive_nb ++;
+		g_recv_mother[g_receive_nb] = value;
+		g_receive_nb ++;
 
-		if (g_process_receive_nb == g_process_receive_max)
+		if (g_receive_nb == g_receive_max)
 		{
 		    /* Do not reschedule read UART */
 		    g_process_receive = 0;
-		    g_process_command	= g_data[0];
+		    g_process_command	= g_recv_mother[0];
 		}
 		else
 		{
@@ -192,9 +204,6 @@ void process_receive(void)
 	}
     }
 }
-
-
-
 
 void process_command(void)
 {
@@ -227,8 +236,8 @@ void process_command(void)
 	    g_motor_right_count = 0;
 	    g_motor_left_count  = 0;
 
-	    speed		 = g_data[0];
-	    g_distance_remaining = g_data[1] * CONVERT_CENTIMETERS_TO_TICS;
+	    speed		 = g_recv_mother[0];
+	    g_distance_remaining = g_recv_mother[1] * CONVERT_CENTIMETERS_TO_TICS;
 
 	    digitalWrite(MOT_L_DIR, HIGH);
 	    digitalWrite(MOT_R_DIR, HIGH);
@@ -237,7 +246,7 @@ void process_command(void)
 	    analogWrite(MOT_R_SPEED, speed);
 
 	    g_process_receive = PROCESS_RECEIVE_WAIT_COMMAND;
-	    g_process_heart   = PROCESS_DISTANCE;
+	    g_process_heart   = PROCESS_HEART_DISTANCE;
 
 	    /* last reset current state */
 	    g_process_command = 0;
@@ -248,8 +257,8 @@ void process_command(void)
 	    g_motor_right_count = 0;
 	    g_motor_left_count  = 0;
 
-	    speed		 = g_data[0];
-	    g_distance_remaining = g_data[1] * CONVERT_CENTIMETERS_TO_TICS;
+	    speed		 = g_recv_mother[0];
+	    g_distance_remaining = g_recv_mother[1] * CONVERT_CENTIMETERS_TO_TICS;
 
 	    digitalWrite(MOT_L_DIR, LOW);
 	    digitalWrite(MOT_R_DIR, LOW);
@@ -258,7 +267,7 @@ void process_command(void)
 	    analogWrite(MOT_R_SPEED, speed);
 
 	    g_process_receive = PROCESS_RECEIVE_WAIT_COMMAND;
-	    g_process_heart   = PROCESS_DISTANCE;
+	    g_process_heart   = PROCESS_HEART_DISTANCE;
 
 	    /* last reset current state */
 	    g_process_command = 0;
@@ -269,8 +278,8 @@ void process_command(void)
 	    g_motor_right_count = 0;
 	    g_motor_left_count  = 0;
 
-	    speed		 = g_data[0];
-	    g_distance_remaining = g_data[1] * CONVERT_DEGREES_TO_TICS;
+	    speed		 = g_recv_mother[0];
+	    g_distance_remaining = g_recv_mother[1] * CONVERT_DEGREES_TO_TICS;
 
 	    digitalWrite(MOT_L_DIR, LOW);
 	    digitalWrite(MOT_R_DIR, HIGH);
@@ -279,7 +288,7 @@ void process_command(void)
 	    analogWrite(MOT_R_SPEED, speed);
 
 	    g_process_receive = PROCESS_RECEIVE_WAIT_COMMAND;
-	    g_process_heart   = PROCESS_DISTANCE;
+	    g_process_heart   = PROCESS_HEART_DISTANCE;
 
 	    /* last reset current state */
 	    g_process_command = 0;
@@ -290,8 +299,8 @@ void process_command(void)
 	    g_motor_right_count = 0;
 	    g_motor_left_count  = 0;
 
-	    speed		 = g_data[0];
-	    g_distance_remaining = g_data[1] * CONVERT_DEGREES_TO_TICS;
+	    speed		 = g_recv_mother[0];
+	    g_distance_remaining = g_recv_mother[1] * CONVERT_DEGREES_TO_TICS;
 
 	    digitalWrite(MOT_L_DIR, HIGH);
 	    digitalWrite(MOT_R_DIR, LOW);
@@ -300,13 +309,18 @@ void process_command(void)
 	    analogWrite(MOT_R_SPEED, speed);
 
 	    g_process_receive = PROCESS_RECEIVE_WAIT_COMMAND;
-	    g_process_heart   = PROCESS_DISTANCE;
+	    g_process_heart   = PROCESS_HEART_DISTANCE;
 
 	    /* last reset current state */
 	    g_process_command = 0;
 	}
 	else if (g_process_command == PROCESS_COMMAND_GET_COUNTERS)
 	{
+	    g_send_mother[0] = PROCESS_COMMAND_GET_COUNTERS;
+	    g_send_mother[1] = (g_motor_left_count / CONVERT_CENTIMETERS_TO_TICS);
+	    g_send_mother[2] = (g_motor_right_count / CONVERT_CENTIMETERS_TO_TICS);
+	    Serial.write(g_send_mother);
+
 	    /* last reset current state */
 	    g_process_command = 0;
 	}
@@ -341,8 +355,6 @@ void process_send(void)
     {
 	if (g_process_send == CMD_SEND_COUNTERS)
 	{
-
-
 	    /* last reset current state */
 	    g_process_send   = 0;
 	}
