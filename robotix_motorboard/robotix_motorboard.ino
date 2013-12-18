@@ -104,7 +104,7 @@ void setup()
     digitalWrite(MOT_R_BRAKE, LOW);
 
     /* init process states */
-    g_process_receive = 1;
+    g_process_receive = PROCESS_RECEIVE_WAIT_COMMAND;
     g_process_command = 0;
     g_process_heart   = 0;
     g_process_send	= 0;
@@ -114,7 +114,7 @@ void setup()
     g_motor_left_count  = 0;
     g_motor_right_count = 0;
 
-    g_receive		= PROCESS_COMMAND_NOTHING;
+    g_receive		= COMMAND_NOTHING;
 
     /* init pipes */
     g_recv_mother[0]	= 0;
