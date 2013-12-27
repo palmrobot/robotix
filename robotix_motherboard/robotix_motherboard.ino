@@ -49,13 +49,25 @@ unsigned char g_lcd_line;
 /*      Serial Motor definitions                        */
 /********************************************************/
 
+/* Motor -> Mother */
+/*  0xFD  -> Start */
+/*  Ack   <- 0xFF  */
+/*  0xXX  -> DATA  */
+/*  0xXX  -> DATA  */
+/*  0xFE  -> End   */
+
+
+
 #define MOTOR_SEND_COMMAND_STOP		0x01 /* [0x01 Stop] */
 #define MOTOR_SEND_COMMAND_FORWARD	0x02 /* [0x02 Forward] [Speed] [distance in cm] */
 #define MOTOR_SEND_COMMAND_BACKWARD	0x03 /* [0x03 Backward] [Speed] [distance in cm] */
 #define MOTOR_SEND_COMMAND_ROTATE_LEFT	0x04 /* [0x04 Rotate Left] [Speed] [degrees]   */
 #define MOTOR_SEND_COMMAND_ROTATE_RIGHT	0x05 /* [0x05 Rotate Right] [Speed] [degrees]  */
-#define MOTOR_SEND_COMMAND_TEST		0x06 /* [0x06 Test] [Nb of bytes] [byte 1] [byte 2] ... [byte n] */
+#define MOTOR_SEND_COMMAND_TEST		0x06 /* [0x06 Test] [Nb of writes] [write 1] [write 2] ... [write n] */
 #define MOTOR_SEND_COMMAND_COUNTERS	0x07 /* [0x07 Get counters] */
+#define MOTOR_SEND_COMMAND_START	0xFD /* [0xFD Start transmission] */
+#define MOTOR_SEND_COMMAND_END		0xFE /* [0xFE End of transmission] */
+#define MOTOR_SEND_COMMAND_ACK		0xFF /* [0xFF Ack of transmission] */
 
 
 #define CMD_DATA_MAX			6
@@ -242,29 +254,31 @@ unsigned char g_process_action;
 /* process SERIAL MOTOR */
 #define PROCESS_RECV_MOTOR_DO_NOTHING		0
 #define PROCESS_RECV_MOTOR_WAIT_COMMAND		1
-#define PROCESS_RECV_MOTOR_WAIT_DATA_1		2
-#define PROCESS_RECV_MOTOR_WAIT_DATA_N		3
-#define PROCESS_RECV_MOTOR_WAIT_DATA_VALUE	4
 unsigned char g_process_recv_motor;
 
 /* process SERIAL SOUND */
 #define PROCESS_RECV_SOUND_DO_NOTHING		0
 #define PROCESS_RECV_SOUND_WAIT_COMMAND		1
-#define PROCESS_RECV_SOUND_WAIT_DATA_1		2
-#define PROCESS_RECV_SOUND_WAIT_DATA_N		3
-#define PROCESS_RECV_SOUND_WAIT_DATA_VALUE	4
 unsigned char g_process_recv_sound;
 
 /* process MOTOR */
-#define PROCESS_MOTOR_TEST			0x40 /* [0x40 Test] [Nb of bytes] [byte 1] [byte 2] ... [byte n] */
+#define PROCESS_MOTOR_TEST			0x40 /* [0x40 Test] [Nb of writes] [write 1] [write 2] ... [write n] */
 #define PROCESS_MOTOR_COUNTERS			0x41 /* [0x41 Counters] [Left in cm] [right in cm] */
 #define PROCESS_MOTOR_READY			0x42 /* [0x42 Ready] */
+#define PROCESS_MOTOR_STOP			0x43
+#define PROCESS_MOTOR_START			0xFD /* Start transmission */
+#define PROCESS_MOTOR_END			0xFE /* End of transmission */
+#define PROCESS_MOTOR_ACK			0xFF /* Ack of transmission */
 unsigned char g_process_motor;
 
 /* process SOUND */
-#define PROCESS_SOUND_TEST			0x80 /* [0x80 Test] [Nb of bytes] [byte 1] [byte 2] ... [byte n] */
+#define PROCESS_SOUND_TEST			0x80 /* [0x80 Test] [Nb of writes] [write 1] [write 2] ... [write n] */
 #define PROCESS_SOUND_TEST2			0x81 /* [0x81 Test2] [data1] [data2] */
 #define PROCESS_SOUND_READY			0x82 /* [0x82 Ready] */
+#define PROCESS_SOUND_START			0xFD /* Start transmission */
+#define PROCESS_SOUND_END			0xFE /* End of transmission */
+#define PROCESS_SOUND_ACK			0xFF /* Ack of transmission */
+
 unsigned char g_process_sound;
 
 /********************************************************/
@@ -280,10 +294,10 @@ unsigned char g_motor_right_direction;
 unsigned char g_state_motor;
 
 
-unsigned char g_motor_speed;
-unsigned char g_motor_distance;
-unsigned char g_motor_curr_dist;
-unsigned char g_motor_degrees;
+uint8_t g_motor_speed;
+uint8_t g_motor_distance;
+uint8_t g_motor_curr_dist;
+uint8_t g_motor_degrees;
 
 unsigned char g_action_detection;
 unsigned char g_action_temperature;
@@ -291,10 +305,7 @@ unsigned char g_action_run;
 unsigned char g_start;
 
 unsigned char g_recv_motor_nb	= 0;
-unsigned char g_recv_motor_max	= 0;
-
 unsigned char g_recv_sound_nb	= 0;
-unsigned char g_recv_sound_max	= 0;
 
 
 void setup()
@@ -328,7 +339,7 @@ void setup()
 
     /* init process states */
     g_process_menu = 0;
-    g_process_action = PROCESS_ACTION_NONE;
+    g_process_action = 0;
     g_process_recv_motor = PROCESS_RECV_MOTOR_WAIT_COMMAND;
     g_process_recv_sound = PROCESS_RECV_SOUND_WAIT_COMMAND;
     g_process_motor = 0;
@@ -357,13 +368,15 @@ void setup()
     g_lcd_line	= 0;
     g_lcd.begin(16, 2);
 
+    attachInterrupt(0, interrupt_call, FALLING);
+
+    delay(800);
+
     /* initialize the serial communications Motor board */
     Serial.begin(115200);
 
     /* initialize the serial communications Sound board */
     Serial1.begin(115200);
-
-    attachInterrupt(0, interrupt_call, FALLING);
 
     /* start, and display first menu entry */
     g_lcd.clear();
@@ -372,7 +385,6 @@ void setup()
     g_lcd.print("Motor : ");
     g_lcd.setCursor(0, 1);
     g_lcd.print("Sound : ");
-
 }
 
 void interrupt_call(void)
@@ -393,21 +405,30 @@ void interrupt_call(void)
     }
 }
 
-void send_motor(char *buffer, int len)
+
+/* Mother -> Motor */
+/*  0xFD  -> Start */
+/*  Ack   <- 0xFF  */
+/*  0xXX  -> DATA  */
+/*  0xXX  -> DATA  */
+/*  0xFE  -> End   */
+/*  Ack   <- 0xFF  */
+void send_motor(uint8_t *buffer, int len)
 {
-    /* Send first byte */
-    Serial.write(buffer[0], 1);
+    uint8_t padding[4] = {0,0,0,0};
 
-    /* Wait for Ack */
-    while (Serial.available() <= 0);
+    if (len > 4)
+	len = 4;
 
-    /* if we get a valid char, read char */
-    value = Serial.read();
-    if (value == buffer[0])
-    {
-	if (len > 1)
-	    Serial.write(&buffer[1], len - 1);
-    }
+    /* Send Start of transmission */
+    Serial.write(MOTOR_SEND_COMMAND_START);
+
+    /* Write Command + Data */
+    Serial.write(buffer, len);
+
+    /* Write padding Data */
+    Serial.write(padding, 4 - len);
+
 }
 
 void motor_forward(unsigned char distance, unsigned char speed)
@@ -419,7 +440,6 @@ void motor_forward(unsigned char distance, unsigned char speed)
     g_send_motor[0] = MOTOR_SEND_COMMAND_FORWARD;
     g_send_motor[1] = g_motor_speed;
     g_send_motor[2] = g_motor_distance;
-
     send_motor(g_send_motor, 3);
 }
 
@@ -433,8 +453,6 @@ void motor_backward(unsigned char distance, unsigned char speed)
     g_send_motor[0] = MOTOR_SEND_COMMAND_BACKWARD;
     g_send_motor[1] = g_motor_speed;
     g_send_motor[2] = g_motor_distance;
-    g_send_motor[3] = 0;
-
     send_motor(g_send_motor, 3);
 }
 
@@ -566,6 +584,8 @@ void process_menu(void)
 		    /* clear LCD before displaying new menu or action */
 		    g_lcd.clear();
 		    g_lcd.print(g_menu[g_menu_idx].name);
+
+		    g_action_run = 0;
 		}break;
 		case MENU_ACTION_SOUND:
 		{
@@ -625,7 +645,6 @@ void process_menu(void)
 		    g_lcd.clear();
 		    g_lcd.print(g_menu[g_menu_idx].name);
 
-
 		    if (g_motor_left_direction == MOTOR_DIRECTION_BACKWARD)
 		    {
 			g_lcd.setCursor(0, 1);
@@ -655,15 +674,23 @@ void process_menu(void)
 			g_send_motor[0] = MOTOR_SEND_COMMAND_BACKWARD;
 		    }
 
+		    g_lcd.clear();
+		    g_lcd.setCursor(0, 0);
+		    g_lcd.print("Speed = "); g_lcd.print(g_motor_speed);
+		    g_lcd.setCursor(0, 1);
+		    g_lcd.print("Dist = "); g_lcd.print(g_motor_curr_dist);g_lcd.print("cm  ");
+
 		    g_send_motor[1] = g_motor_speed;
-		    g_motor_distance = 20;
+		    g_motor_distance = 10;
 		    g_send_motor[2] = g_motor_distance;
 		    send_motor(g_send_motor, 3);
 
 		    g_state_motor = MOTOR_STATE_DIST;
+
 		    g_process_action = PROCESS_ACTION_RUN;
 		    g_process_menu = 0;
 		    g_action_run = 0;
+
 		}break;
 		case MENU_ACTION_ROTATE:
 		{
@@ -672,6 +699,8 @@ void process_menu(void)
 		    g_motor_degrees = 90;
 		    g_send_motor[2] = g_motor_degrees;
 		    send_motor(g_send_motor, 3);
+
+		    g_state_motor = MOTOR_STATE_DIST;
 
 		    g_process_action = PROCESS_ACTION_ROTATE;
 		    g_process_menu = 0;
@@ -919,6 +948,8 @@ void process_action(void)
 	{
 	    if (g_state_motor == MOTOR_STATE_END)
 	    {
+		g_motor_curr_dist = 0;
+
 		if (g_menu_tree_level > 0)
 		{
 		    g_menu_tree_level--;
@@ -931,6 +962,7 @@ void process_action(void)
 		}
 
 		g_process_menu = 1;
+		g_state_motor = 0;
 
 		g_process_action = PROCESS_ACTION_NONE;
 
@@ -939,34 +971,21 @@ void process_action(void)
 	    }
 	    else if(g_state_motor == MOTOR_STATE_DIST)
 	    {
-		if (g_action_run == 0)
-		{
-		    g_lcd.clear();
-		    g_lcd.setCursor(0, 0);
-		    g_lcd.print("Speed = ");  g_lcd.print(g_motor_speed);
-		    g_lcd.setCursor(0, 1);
-		    g_lcd.print("Dist = "); g_lcd.print(g_motor_curr_dist);g_lcd.print("cm  ");
-		    g_action_run = 1;
-		    g_motor_curr_dist = 12;
-		    g_send_motor[0] = MOTOR_SEND_COMMAND_COUNTERS;
-		    send_motor(g_send_motor, 1);
-		    g_process_action = PROCESS_ACTION_NONE;
-		}
-		else
-		{
-		    g_lcd.setCursor(7, 1);
-		    g_lcd.print(g_motor_curr_dist);g_lcd.print("CM  ");
-		    g_send_motor[0] = MOTOR_SEND_COMMAND_COUNTERS;
-		    send_motor(g_send_motor, 1);
-		    g_process_action = PROCESS_ACTION_NONE;
-		    g_process_menu = 1;
-		}
+		delay(500);
+		g_lcd.setCursor(7, 1);
+		g_lcd.print(g_motor_curr_dist);g_lcd.print("cm  ");
+		g_send_motor[0] = MOTOR_SEND_COMMAND_COUNTERS;
+		send_motor(g_send_motor, 1);
+		g_process_menu = 1;
+		g_action_run = 0;
 	    }
 	}
 	else if (g_process_action == PROCESS_ACTION_ROTATE)
 	{
 	    if (g_state_motor == MOTOR_STATE_END)
 	    {
+		g_motor_curr_dist = 0;
+
 		if (g_menu_tree_level > 0)
 		{
 		    g_menu_tree_level--;
@@ -979,6 +998,8 @@ void process_action(void)
 		}
 
 		g_process_menu = 1;
+		g_state_motor = 0;
+
 		g_process_action = PROCESS_ACTION_NONE;
 
 		/* end of threatment, re-enable the button for interrupt */
@@ -986,23 +1007,13 @@ void process_action(void)
 	    }
 	    else if(g_state_motor == MOTOR_STATE_DIST)
 	    {
-		if (g_action_run == 0)
-		{
-		    g_lcd.setCursor(0, 0);
-		    g_lcd.print("Speed = ");  g_lcd.print(g_motor_speed);
-		    g_lcd.setCursor(0, 1);
-		    g_lcd.print("Dist = "); g_lcd.print(g_motor_curr_dist);g_lcd.print("cm  ");
-		    g_action_run = 1;
-		    g_send_motor[0] = MOTOR_SEND_COMMAND_COUNTERS;
-		    send_motor(g_send_motor, 1);
-		}
-		else
-		{
-		    g_lcd.setCursor(7, 1);
-		    g_lcd.print(g_motor_curr_dist);g_lcd.print("cm  ");
-		    g_send_motor[0] = MOTOR_SEND_COMMAND_COUNTERS;
-		    send_motor(g_send_motor, 1);
-		}
+		delay(500);
+		g_lcd.setCursor(7, 1);
+		g_lcd.print(g_motor_curr_dist);g_lcd.print("cm  ");
+		g_send_motor[0] = MOTOR_SEND_COMMAND_COUNTERS;
+		send_motor(g_send_motor, 1);
+		g_process_menu = 1;
+		g_action_run = 0;
 	    }
 	}
 	else if (g_process_action == PROCESS_ACTION_LIST)
@@ -1015,141 +1026,43 @@ void process_action(void)
     }
 }
 
+
+/* Mother <- Motor */
+/*  Start <- 0xFD  */
+/*  0xFF  -> Ack   */
+/*  DATA  <- 0xZZ  */
+/*  DATA  <- 0xZZ  */
+/*  End   <- 0xFE  */
+/*  0xFF  -> Ack   */
 void process_recv_motor(void)
 {
-    char value;
+    uint8_t value;
+    uint8_t sz;
 
     if (g_process_recv_motor)
     {
 	/* if we get a valid char, read char */
 	if (Serial.available() > 0)
 	{
-	    /* get incoming byte: */
+	    /* get Start Byte */
 	    value = Serial.read();
-	    g_lcd.print(value);
-	    if (g_process_recv_motor == PROCESS_RECV_MOTOR_WAIT_COMMAND)
+	    if (value == PROCESS_MOTOR_START)
 	    {
-		g_recv_motor[0] = value;
-		g_recv_motor_nb++;
+		/* Wait for serial */
+		while (Serial.available() < 4);
 
-		if (g_recv_motor[0] == PROCESS_MOTOR_COUNTERS)
+		for(g_recv_motor_nb = 0; g_recv_motor_nb < 4; g_recv_motor_nb++)
 		{
-		    g_recv_motor_max = 3;
-
-		    /* reschedule read UART to get DATA */
-		    g_process_recv_motor = PROCESS_RECV_MOTOR_WAIT_DATA_N;
+		    /* get incoming write: */
+		    g_recv_motor[g_recv_motor_nb] = Serial.read();
+		    /* g_lcd.print("."); */
+		    /* g_lcd.print(g_recv_motor[g_recv_motor_nb],DEC); */
 		}
-		else if (g_recv_motor[0] == PROCESS_MOTOR_TEST)
-		{
-		    /* reschedule read UART to get the number of bytes to read */
-		    g_process_recv_motor = PROCESS_RECV_MOTOR_WAIT_DATA_VALUE;
-		}
-		else
-		{
-		    g_recv_motor_max = 1;
+		/* Set action plan */
+		g_process_motor = g_recv_motor[0];
 
-		    /* Do not reschedule read UART */
-		    g_process_recv_motor   = 0;
-		    g_process_motor = g_recv_motor[0];
-		}
-	    }
-	    else if (g_process_recv_motor == PROCESS_RECV_MOTOR_WAIT_DATA_VALUE)
-	    {
-		g_recv_motor_max = value;
-		g_recv_motor_nb++;
-
-		if (g_recv_motor_max > CMD_DATA_MAX)
-		    g_recv_motor_max = CMD_DATA_MAX;
-
-		/* Do not reschedule read UART */
-		g_process_recv_motor = PROCESS_RECV_MOTOR_WAIT_DATA_N;
-	    }
-	    else if (g_process_recv_motor == PROCESS_RECV_MOTOR_WAIT_DATA_N)
-	    {
-		g_recv_motor[g_recv_motor_nb] = value;
-		g_recv_motor_nb ++;
-
-		if (g_recv_motor_nb == g_recv_motor_max)
-		{
-		    /* Do not reschedule read UART */
-		    g_process_recv_motor = 0;
-		    g_process_motor = g_recv_motor[0];
-		}
-		else
-		{
-		    /* reschedule read UART to get next DATA */
-		    g_process_recv_motor = PROCESS_RECV_MOTOR_WAIT_DATA_N;
-		}
-	    }
-	}
-    }
-}
-
-void process_recv_sound(void)
-{
-    char value;
-
-    if (g_process_recv_sound)
-    {
-	/* if we get a valid char, read char */
-	if (Serial1.available() > 0)
-	{
-	    /* get incoming byte: */
-	    value = Serial1.read();
-
-	    if (g_process_recv_sound == PROCESS_RECV_SOUND_WAIT_COMMAND)
-	    {
-		g_recv_sound[0] = value;
-		g_recv_sound_nb++;
-
-		if ((g_recv_sound[0] == PROCESS_SOUND_TEST2))
-		{
-		    g_recv_sound_max = 3;
-
-		    /* reschedule read UART to get DATA */
-		    g_process_recv_sound  = PROCESS_RECV_SOUND_WAIT_DATA_N;
-		}
-		else if (g_recv_sound[0] == PROCESS_SOUND_TEST)
-		{
-		    /* reschedule read UART to get the number of bytes to read */
-		    g_process_recv_sound = PROCESS_RECV_SOUND_WAIT_DATA_VALUE;
-		}
-		else
-		{
-		    g_recv_sound_max = 1;
-
-		    /* Do not reschedule read UART */
-		    g_process_recv_sound   = 0;
-		    g_process_sound = g_recv_sound[0];
-		}
-	    }
-	    else if (g_process_recv_sound == PROCESS_RECV_SOUND_WAIT_DATA_VALUE)
-	    {
-		g_recv_sound_max = value;
-		g_recv_sound_nb++;
-
-		if (g_recv_sound_max > CMD_DATA_MAX)
-		    g_recv_sound_max = CMD_DATA_MAX;
-
-		/* Do not reschedule read UART */
-		g_process_recv_sound = PROCESS_RECV_SOUND_WAIT_DATA_N;
-	    }
-	    else if (g_process_recv_sound == PROCESS_RECV_SOUND_WAIT_DATA_N)
-	    {
-		g_recv_sound[g_recv_sound_nb] = value;
-		g_recv_sound_nb ++;
-
-		if (g_recv_sound_nb == g_recv_sound_max)
-		{
-		    /* Do not reschedule read UART */
-		    g_process_recv_sound = 0;
-		    g_process_sound = g_recv_sound[0];
-		}
-		else
-		{
-		    /* reschedule read UART to get next DATA */
-		    g_process_recv_sound = PROCESS_RECV_SOUND_WAIT_DATA_N;
-		}
+		/* Disable communication ,wait for message treatment */
+		g_process_recv_motor   = 0;
 	    }
 	}
     }
@@ -1165,6 +1078,17 @@ void process_motor(void)
 	    g_process_recv_motor = PROCESS_RECV_MOTOR_WAIT_COMMAND;
 	    g_process_motor = 0;
 	    g_process_action = PROCESS_ACTION_RUN;
+	}
+	else if (g_process_motor == PROCESS_MOTOR_STOP)
+	{
+	    g_state_motor = MOTOR_STATE_END;
+
+	    g_lcd.setCursor(7, 1);
+	    g_lcd.print("Stop !  ");
+	    delay(500);
+	    g_process_motor = 0;
+	    g_process_action = PROCESS_ACTION_RUN;
+	    g_process_recv_motor = PROCESS_RECV_MOTOR_WAIT_COMMAND;
 	}
 	else if (g_process_motor == PROCESS_MOTOR_READY)
 	{
@@ -1212,7 +1136,7 @@ void loop(void)
     process_menu();
     process_action();
     process_recv_motor();
-    process_recv_sound();
+    /* process_recv_sound(); */
     process_motor();
     /* process_sound(); */
 }
