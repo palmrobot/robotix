@@ -2,25 +2,30 @@
 /*      Pin  definitions                                */
 /********************************************************/
 
-#define MOT_L_SPEED	5
-#define MOT_L_DIR	12
-#define MOT_L_BRAKE	9
+#define PIN_DETECTION_LEFT		A0
+#define PIN_DETECTION_RIGHT		A1
 
-#define MOT_R_SPEED	11
-#define MOT_R_DIR	13
-#define MOT_R_BRAKE	8
+#define PIN_DETECTION_LEFT_ENABLE	6
+#define PIN_DETECTION_RIGHT_ENABLE	7
 
+#define PIN_MOT_L_SPEED			5
+#define PIN_MOT_L_DIR			12
+#define PIN_MOT_L_BRAKE			9
+
+#define PIN_MOT_R_SPEED			11
+#define PIN_MOT_R_DIR			13
+#define PIN_MOT_R_BRAKE			8
 
 /********************************************************/
 /*      Serial Motor definitions                        */
 /********************************************************/
 #define COMMAND_TEST			0x40 /* [0x40 Test] [Nb of writes] [write 1] [write 2] ... [write n] */
-#define COMMAND_COUNTERS		0x41 /* [0x41 Counters] [Left in cm] [right in cm] */
+#define COMMAND_COUNTERS		0x41 /* [0x41 Counters] [Left [right] */
 #define COMMAND_READY			0x42 /* [0x42 Ready] */
 #define COMMAND_STOP			0x43
-#define COMMAND_START			0xFD /* [0xFD Start transmission] */
-#define COMMAND_END			0xFE /* [0xFE End of transmission] */
-#define COMMAND_ACK			0xFF /* [0xFF Ack of transmission] */
+#define COMMAND_DETECTED		0x44
+#define COMMAND_RUNNING_DETECTION	0x45
+#define COMMAND_START			0xFE /* [0xFE Start transmission] */
 
 #define CMD_DATA_MAX			6
 uint8_t g_send_mother[CMD_DATA_MAX];
@@ -29,27 +34,26 @@ uint8_t g_recv_mother[CMD_DATA_MAX];
 /********************************************************/
 /*      Process definitions                             */
 /********************************************************/
-#define PROCESS_RECEIVE_DO_NOTHING	 0
-#define PROCESS_RECEIVE_WAIT_COMMAND	 1
+#define PROCESS_RECEIVE_DO_NOTHING		0
+#define PROCESS_RECEIVE_WAIT_COMMAND		1
 unsigned char g_process_receive;
 
-#define PROCESS_ACTION_INIT		 0x1
-#define PROCESS_ACTION_DISTANCE		 0x2
-#define PROCESS_ACTION_TEST		 0x3
+#define PROCESS_ACTION_INIT			0x01
+#define PROCESS_ACTION_DISTANCE			0x02
+#define PROCESS_ACTION_DETECTION		0x04
 unsigned char g_process_action;
 
-#define PROCESS_COMMAND_STOP		0x01 /* [0x01 Stop] */
-#define PROCESS_COMMAND_FORWARD		0x02 /* [0x02 Forward] [Speed] [distance in cm] */
-#define PROCESS_COMMAND_BACKWARD	0x03 /* [0x03 Backward] [Speed] [distance in cm] */
-#define PROCESS_COMMAND_ROTATE_LEFT	0x04 /* [0x04 Rotate Left] [Speed] [degrees]   */
-#define PROCESS_COMMAND_ROTATE_RIGHT	0x05 /* [0x05 Rotate Right] [Speed] [degrees]  */
-#define PROCESS_COMMAND_TEST		0x06 /* [0x06 Test] [Nb of writes] [write 1] [write 2] ... [write n] */
-#define PROCESS_COMMAND_GET_COUNTERS	0x07 /* [0x07 Get counters] */
-#define PROCESS_COMMAND_START		0xFD /* Start transmission */
-#define PROCESS_COMMAND_END		0xFE /* End of transmission */
-#define PROCESS_COMMAND_ACK		0xFF /* Ack of transmission */
-
-
+#define PROCESS_COMMAND_STOP			0x01 /* [0x01 Stop] */
+#define PROCESS_COMMAND_FORWARD			0x02 /* [0x02 Forward] [Speed] [distance in cm] */
+#define PROCESS_COMMAND_BACKWARD		0x03 /* [0x03 Backward] [Speed] [distance in cm] */
+#define PROCESS_COMMAND_ROTATE_LEFT		0x04 /* [0x04 Rotate Left] [Speed] [degrees]   */
+#define PROCESS_COMMAND_ROTATE_RIGHT		0x05 /* [0x05 Rotate Right] [Speed] [degrees]  */
+#define PROCESS_COMMAND_TEST			0x06 /* [0x06 Test] [Nb of writes] [write 1] [write 2] ... [write n] */
+#define PROCESS_COMMAND_GET_COUNTERS_CM		0x07 /* [0x07 Get counters in centimeters] */
+#define PROCESS_COMMAND_GET_COUNTERS		0x08 /* [0x08 Get counters] */
+#define PROCESS_COMMAND_GET_COUNTERS_DEG	0x09 /* [0x09 Get counters in degrees] */
+#define PROCESS_COMMAND_DETECTION		0x0A /* [0x0A Get Detection */
+#define PROCESS_COMMAND_START			0xFE /* [0xFE Start transmission */
 
 unsigned char g_process_command;
 
@@ -57,22 +61,36 @@ unsigned char g_process_command;
 /*      Global definitions                              */
 /********************************************************/
 
-#define CONVERT_CENTIMETERS_TO_TICS	40
-#define CONVERT_DEGREES_TO_TICS		5
-#define CONVERT_DEGREES_COEF		2
+#define CONVERT_CENTIMETERS_TO_TICS(a)	(a * 31)
+#define CONVERT_DEGREES_TO_TICS(a)	(a / 10)
 
-uint8_t g_time_count	  = 0;
-unsigned int g_motor_left_count   = 0;
-unsigned int g_motor_right_count  = 0;
+#define CONVERT_TICS_TO_CENTIMETERS(a)	(a / 31)
+#define CONVERT_TICS_TO_DEGREES(a)	(a * 10)
 
-uint8_t g_recv_mother_nb	= 0;
 
-unsigned int g_distance_left		= 0;
-unsigned int g_distance_right		= 0;
-unsigned int g_distance			= 0;
-unsigned int g_distance_remaining	= 0;
+uint8_t g_time_count;
+unsigned int g_motor_left_count;
+unsigned int g_motor_right_count;
 
-unsigned int g_mode		= 0;
+uint8_t g_recv_mother_nb;
+
+uint8_t g_distance_left;
+uint8_t g_distance_right;
+uint8_t g_distance;
+uint8_t g_distance_remaining;
+uint8_t g_detection_left;
+uint8_t g_detection_right;
+uint8_t g_detection_left_old;
+uint8_t g_detection_right_old;
+
+#define DIRECTION_STOP			0
+#define DIRECTION_FORWARD		1
+#define DIRECTION_BACKWARD		2
+#define DIRECTION_ROTATE_LEFT		3
+#define DIRECTION_ROTATE_RIGHT		4
+uint8_t g_direction;
+
+unsigned int g_mode;
 
 
 void interrupt_left_call(void)
@@ -88,23 +106,31 @@ void interrupt_right_call(void)
 
 void setup()
 {
-    /* Init input/output left motor */
-    pinMode(MOT_L_SPEED, OUTPUT);
-    pinMode(MOT_L_DIR, OUTPUT);
-    pinMode(MOT_L_BRAKE, OUTPUT);
+    /* Initialize the sensors input pin */
+    pinMode(PIN_DETECTION_LEFT, INPUT);
+    pinMode(PIN_DETECTION_RIGHT, INPUT);
+    pinMode(PIN_DETECTION_LEFT_ENABLE, OUTPUT);
+    digitalWrite(PIN_DETECTION_LEFT_ENABLE, LOW);
+    pinMode(PIN_DETECTION_RIGHT_ENABLE, OUTPUT);
+    digitalWrite(PIN_DETECTION_RIGHT_ENABLE, LOW);
 
-    analogWrite(MOT_L_SPEED, 0);
-    digitalWrite(MOT_L_DIR, HIGH);
-    digitalWrite(MOT_L_BRAKE, LOW);
+    /* Init input/output left motor */
+    pinMode(PIN_MOT_L_SPEED, OUTPUT);
+    pinMode(PIN_MOT_L_DIR, OUTPUT);
+    pinMode(PIN_MOT_L_BRAKE, OUTPUT);
+
+    analogWrite(PIN_MOT_L_SPEED, 0);
+    digitalWrite(PIN_MOT_L_DIR, HIGH);
+    digitalWrite(PIN_MOT_L_BRAKE, LOW);
 
     /* Init input/output right motor */
-    pinMode(MOT_R_SPEED, OUTPUT);
-    pinMode(MOT_R_DIR, OUTPUT);
-    pinMode(MOT_R_BRAKE, OUTPUT);
+    pinMode(PIN_MOT_R_SPEED, OUTPUT);
+    pinMode(PIN_MOT_R_DIR, OUTPUT);
+    pinMode(PIN_MOT_R_BRAKE, OUTPUT);
 
-    analogWrite(MOT_R_SPEED, 0);
-    digitalWrite(MOT_R_DIR, HIGH);
-    digitalWrite(MOT_R_BRAKE, LOW);
+    analogWrite(PIN_MOT_R_SPEED, 0);
+    digitalWrite(PIN_MOT_R_DIR, HIGH);
+    digitalWrite(PIN_MOT_R_BRAKE, LOW);
 
     /* init process states */
     g_process_receive   = PROCESS_RECEIVE_WAIT_COMMAND;
@@ -115,6 +141,12 @@ void setup()
     g_time_count	= 0;
     g_motor_left_count  = 0;
     g_motor_right_count = 0;
+    g_detection_left	= 0;
+    g_detection_right	= 0;
+    g_detection_left_old	= 2;
+    g_detection_right_old	= 2;
+    g_direction		= 0;
+
 
     /* init pipes */
     g_recv_mother[0]	= 0;
@@ -135,19 +167,19 @@ void setup()
 
 }
 
-/* Mother <- Motor */
-/*  Start <- 0xFD  */
-/*  0xFF  -> Ack   */
-/*  DATA  <- 0xZZ  */
-/*  DATA  <- 0xZZ  */
-/*  End   <- 0xFE  */
-/*  0xFF  -> Ack   */
+/* Motor -> Mother */
+/*  Start ->       */
+/*  Cmd   ->       */
+/*  Data1 ->       */
+/*  Data2 ->       */
+/*  Data3 ->       */
+/*  Data4 ->       */
 void send_mother(uint8_t *buffer, int len)
 {
-    uint8_t padding[4] = {0,0,0,0};
+    uint8_t padding[CMD_DATA_MAX] = {0,0,0,0,0,0};
 
-    if (len > 4)
-	len = 4;
+    if (len > CMD_DATA_MAX)
+	len = CMD_DATA_MAX;
 
     /* Send Start of transmission */
     Serial.write(COMMAND_START);
@@ -156,17 +188,9 @@ void send_mother(uint8_t *buffer, int len)
     Serial.write(buffer, len);
 
     /* Write padding Data */
-    Serial.write(padding, 4 - len);
+    Serial.write(padding, CMD_DATA_MAX - len);
 }
 
-
-/* Mother -> Motor */
-/*  0xFD  -> Start */
-/*  Ack   <- 0xFF  */
-/*  0xXX  -> DATA  */
-/*  0xXX  -> DATA  */
-/*  0xFE  -> End   */
-/*  Ack   <- 0xFF  */
 void process_receive(void)
 {
     uint8_t value;
@@ -181,9 +205,9 @@ void process_receive(void)
 	    if (value == COMMAND_START)
 	    {
 		/* Wait for serial */
-		while (Serial.available() < 4);
+		while (Serial.available() < CMD_DATA_MAX);
 
-		for(g_recv_mother_nb = 0; g_recv_mother_nb < 4; g_recv_mother_nb++)
+		for(g_recv_mother_nb = 0; g_recv_mother_nb < CMD_DATA_MAX; g_recv_mother_nb++)
 		{
 		    /* get incoming write: */
 		    g_recv_mother[g_recv_mother_nb] = Serial.read();
@@ -198,6 +222,69 @@ void process_receive(void)
     }
 }
 
+void move(uint8_t speed, uint8_t dir)
+{
+    digitalWrite(PIN_MOT_L_BRAKE, LOW);
+    digitalWrite(PIN_MOT_R_BRAKE, LOW);
+
+    if (dir == DIRECTION_FORWARD)
+    {
+	digitalWrite(PIN_MOT_R_DIR, LOW);
+	digitalWrite(PIN_MOT_L_DIR, LOW);
+    }
+    else if (dir == DIRECTION_BACKWARD)
+    {
+	digitalWrite(PIN_MOT_L_DIR, HIGH);
+	digitalWrite(PIN_MOT_R_DIR, HIGH);
+    }
+    else if (dir == DIRECTION_ROTATE_LEFT)
+    {
+	digitalWrite(PIN_MOT_L_DIR, LOW);
+	digitalWrite(PIN_MOT_R_DIR, HIGH);
+    }
+    else
+    {
+	digitalWrite(PIN_MOT_L_DIR, HIGH);
+	digitalWrite(PIN_MOT_R_DIR, LOW);
+    }
+    analogWrite(PIN_MOT_L_SPEED, speed);
+    analogWrite(PIN_MOT_R_SPEED, speed);
+
+    g_direction	= dir;
+}
+
+
+void stop(void)
+{
+    if (g_direction == DIRECTION_STOP)
+	return;
+
+    if (g_direction == DIRECTION_FORWARD)
+    {
+	move(100, DIRECTION_BACKWARD);
+    }
+    else if (g_direction == DIRECTION_BACKWARD)
+    {
+	move(100, DIRECTION_FORWARD);
+    }
+    else if (g_direction == DIRECTION_ROTATE_LEFT)
+    {
+	move(100, DIRECTION_ROTATE_RIGHT);
+    }
+    else
+    {
+	move(100, DIRECTION_ROTATE_LEFT);
+    }
+    delay(100);
+
+    digitalWrite(PIN_MOT_L_BRAKE, HIGH);
+    digitalWrite(PIN_MOT_R_BRAKE, HIGH);
+    analogWrite(PIN_MOT_L_SPEED, 0);
+    analogWrite(PIN_MOT_R_SPEED, 0);
+
+    g_direction = DIRECTION_STOP;
+}
+
 void process_command(void)
 {
     unsigned char speed;
@@ -207,19 +294,10 @@ void process_command(void)
     {
 	if (g_process_command == PROCESS_COMMAND_STOP)
 	{
-	    /* Brake immediatly */
-	    digitalWrite(MOT_L_BRAKE, HIGH);
-	    digitalWrite(MOT_R_BRAKE, HIGH);
+	    stop();
+	    g_process_action  &= ~PROCESS_ACTION_DISTANCE;
 
-	    /* Set speed to 0 */
-	    analogWrite(MOT_L_SPEED,0);
-	    analogWrite(MOT_R_SPEED,0);
-
-	    /* unset the brake */
-	    digitalWrite(MOT_L_BRAKE, LOW);
-	    digitalWrite(MOT_R_BRAKE, LOW);
 	    g_process_receive = PROCESS_RECEIVE_WAIT_COMMAND;
-	    g_process_action   = 0;
 
 	    /* last reset current state */
 	    g_process_command = 0;
@@ -231,18 +309,12 @@ void process_command(void)
 	    g_motor_left_count  = 0;
 
 	    speed		 = g_recv_mother[1];
-	    g_distance_remaining = g_recv_mother[2] * CONVERT_CENTIMETERS_TO_TICS;
+	    g_distance_remaining = CONVERT_CENTIMETERS_TO_TICS(g_recv_mother[2]);
 
-	    digitalWrite(MOT_L_BRAKE, LOW);
-	    digitalWrite(MOT_L_DIR, LOW);
-	    digitalWrite(MOT_R_BRAKE, LOW);
-	    digitalWrite(MOT_R_DIR, LOW);
-
-	    analogWrite(MOT_L_SPEED, speed);
-	    analogWrite(MOT_R_SPEED, speed);
+	    move(speed, DIRECTION_FORWARD);
 
 	    g_process_receive = PROCESS_RECEIVE_WAIT_COMMAND;
-	    g_process_action   = PROCESS_ACTION_DISTANCE;
+	    g_process_action  |= PROCESS_ACTION_DISTANCE;
 
 	    /* last reset current state */
 	    g_process_command = 0;
@@ -254,18 +326,12 @@ void process_command(void)
 	    g_motor_left_count  = 0;
 
 	    speed		 = g_recv_mother[1];
-	    g_distance_remaining = (g_recv_mother[2] * CONVERT_CENTIMETERS_TO_TICS);
+	    g_distance_remaining = CONVERT_CENTIMETERS_TO_TICS(g_recv_mother[2]);
 
-	    digitalWrite(MOT_L_BRAKE, LOW);
-	    digitalWrite(MOT_L_DIR, HIGH);
-	    digitalWrite(MOT_R_BRAKE, LOW);
-	    digitalWrite(MOT_R_DIR, HIGH);
-
-	    analogWrite(MOT_L_SPEED, speed);
-	    analogWrite(MOT_R_SPEED, speed);
+	    move(speed, DIRECTION_BACKWARD);
 
 	    g_process_receive = PROCESS_RECEIVE_WAIT_COMMAND;
-	    g_process_action   = PROCESS_ACTION_DISTANCE;
+	    g_process_action  |= PROCESS_ACTION_DISTANCE;
 
 	    /* last reset current state */
 	    g_process_command = 0;
@@ -277,18 +343,11 @@ void process_command(void)
 	    g_motor_left_count  = 0;
 
 	    speed		 = g_recv_mother[1];
-	    g_distance_remaining = (g_recv_mother[2] * CONVERT_DEGREES_COEF ) / CONVERT_DEGREES_TO_TICS;
-
-	    digitalWrite(MOT_L_BRAKE, LOW);
-	    digitalWrite(MOT_L_DIR, HIGH);
-	    digitalWrite(MOT_R_BRAKE, LOW);
-	    digitalWrite(MOT_R_DIR, LOW);
-
-	    analogWrite(MOT_L_SPEED, speed);
-	    analogWrite(MOT_R_SPEED, speed);
+	    g_distance_remaining = CONVERT_DEGREES_TO_TICS(g_recv_mother[2]);
+	    move(speed, DIRECTION_ROTATE_LEFT);
 
 	    g_process_receive = PROCESS_RECEIVE_WAIT_COMMAND;
-	    g_process_action   = PROCESS_ACTION_DISTANCE;
+	    g_process_action  |= PROCESS_ACTION_DISTANCE;
 
 	    /* last reset current state */
 	    g_process_command = 0;
@@ -300,30 +359,71 @@ void process_command(void)
 	    g_motor_left_count  = 0;
 
 	    speed		 = g_recv_mother[1];
-	    g_distance_remaining = (g_recv_mother[2] * CONVERT_DEGREES_COEF ) / CONVERT_DEGREES_TO_TICS;
-	    digitalWrite(MOT_L_BRAKE, LOW);
-	    digitalWrite(MOT_L_DIR, LOW);
-	    digitalWrite(MOT_R_BRAKE, LOW);
-	    digitalWrite(MOT_R_DIR, HIGH);
-
-	    analogWrite(MOT_L_SPEED, speed);
-	    analogWrite(MOT_R_SPEED, speed);
+	    g_distance_remaining = CONVERT_DEGREES_TO_TICS(g_recv_mother[2]);
+	    move(speed, DIRECTION_ROTATE_RIGHT);
 
 	    g_process_receive = PROCESS_RECEIVE_WAIT_COMMAND;
-	    g_process_action  = PROCESS_ACTION_DISTANCE;
+	    g_process_action  |= PROCESS_ACTION_DISTANCE;
 
 	    /* last reset current state */
 	    g_process_command = 0;
 	}
-	else if (g_process_command == PROCESS_COMMAND_GET_COUNTERS)
+	else if (g_process_command == PROCESS_COMMAND_GET_COUNTERS_CM)
 	{
 	    g_send_mother[0] = COMMAND_COUNTERS;
-	    g_send_mother[1] = (uint8_t)(g_motor_left_count / CONVERT_CENTIMETERS_TO_TICS);
-	    g_send_mother[2] = (uint8_t)(g_motor_right_count / CONVERT_CENTIMETERS_TO_TICS);
-	    send_mother(g_send_mother, 3);
+	    g_send_mother[1] = (uint8_t)(CONVERT_TICS_TO_CENTIMETERS(g_motor_left_count) >> 8 );
+	    g_send_mother[2] = (uint8_t)(CONVERT_TICS_TO_CENTIMETERS(g_motor_left_count) & 0xFF);
+	    g_send_mother[3] = (uint8_t)(CONVERT_TICS_TO_CENTIMETERS(g_motor_right_count) >> 8);
+	    g_send_mother[4] = (uint8_t)(CONVERT_TICS_TO_CENTIMETERS(g_motor_right_count) & 0xFF);
+	    send_mother(g_send_mother, 5);
 
 	    g_process_receive  = PROCESS_RECEIVE_WAIT_COMMAND;
 	    g_process_command  = 0;
+	}
+	else if (g_process_command == PROCESS_COMMAND_GET_COUNTERS_DEG)
+	{
+	    g_send_mother[0] = COMMAND_COUNTERS;
+	    g_send_mother[1] = (uint8_t)(CONVERT_TICS_TO_DEGREES(g_motor_left_count) >> 8 );
+	    g_send_mother[2] = (uint8_t)(CONVERT_TICS_TO_DEGREES(g_motor_left_count) & 0xFF);
+	    g_send_mother[3] = (uint8_t)(CONVERT_TICS_TO_DEGREES(g_motor_right_count) >> 8);
+	    g_send_mother[4] = (uint8_t)(CONVERT_TICS_TO_DEGREES(g_motor_right_count) & 0xFF);
+	    send_mother(g_send_mother, 5);
+
+	    g_process_receive  = PROCESS_RECEIVE_WAIT_COMMAND;
+	    g_process_command  = 0;
+	}
+	else if (g_process_command == PROCESS_COMMAND_GET_COUNTERS)
+	{
+	    g_send_mother[0] = COMMAND_COUNTERS;
+	    g_send_mother[1] = (uint8_t)(g_motor_left_count >> 8);
+	    g_send_mother[2] = (uint8_t)(g_motor_left_count & 0xFF);
+	    g_send_mother[3] = (uint8_t)(g_motor_right_count >> 8);
+	    g_send_mother[4] = (uint8_t)(g_motor_right_count & 0xFF);
+	    send_mother(g_send_mother, 5);
+
+	    g_process_receive  = PROCESS_RECEIVE_WAIT_COMMAND;
+	    g_process_command  = 0;
+	}
+	else if (g_process_command == PROCESS_COMMAND_DETECTION)
+	{
+	    if ((g_process_action & PROCESS_ACTION_DETECTION) == PROCESS_ACTION_DETECTION)
+	    {
+		g_process_action &= ~PROCESS_ACTION_DETECTION;
+
+		g_process_receive  = PROCESS_RECEIVE_WAIT_COMMAND;
+		g_process_command  = 0;
+	    }
+	    else
+	    {
+		g_send_mother[0] = COMMAND_DETECTED;
+		g_send_mother[1] = digitalRead(PIN_DETECTION_LEFT);
+		g_send_mother[2] = digitalRead(PIN_DETECTION_RIGHT);
+		send_mother(g_send_mother, 3);
+
+		g_process_receive  = PROCESS_RECEIVE_WAIT_COMMAND;
+		g_process_command  = 0;
+		g_process_action  |= PROCESS_ACTION_DETECTION;
+	    }
 	}
     }
 }
@@ -332,31 +432,58 @@ void process_action(void)
 {
     if (g_process_action)
     {
-	if (g_process_action == PROCESS_ACTION_INIT)
+	if ((g_process_action & PROCESS_ACTION_INIT) == PROCESS_ACTION_INIT)
 	{
 	    g_send_mother[0] = COMMAND_READY;
 	    send_mother(g_send_mother, 1);
 
-	    g_process_action = 0;
+	    g_process_action &= ~PROCESS_ACTION_INIT;
 	}
-	else if (g_process_action == PROCESS_ACTION_DISTANCE)
+	if ((g_process_action & PROCESS_ACTION_DISTANCE) == PROCESS_ACTION_DISTANCE)
 	{
+	    g_detection_left  = digitalRead(PIN_DETECTION_LEFT);
+	    g_detection_right = digitalRead(PIN_DETECTION_RIGHT);
+
 	    /* check if distance has been reached */
-	    if (g_distance >= g_distance_remaining)
+	    if (((g_detection_left == 1) || (g_detection_right == 1)) ||
+		(g_distance >= g_distance_remaining) && (g_distance_remaining > 0))
 	    {
-		/* Brake immediatly */
-		digitalWrite(MOT_L_BRAKE, HIGH);
-		digitalWrite(MOT_R_BRAKE, HIGH);
+		stop();
 
-		/* Set speed to 0 */
-		analogWrite(MOT_L_SPEED,0);
-		analogWrite(MOT_R_SPEED,0);
-
-		g_send_mother[0] = COMMAND_STOP;
-		send_mother(g_send_mother, 1);
+		if ((g_detection_left == 1) || (g_detection_right == 1))
+		{
+		    g_send_mother[0] = COMMAND_RUNNING_DETECTION;
+		    g_send_mother[1] = g_detection_left;
+		    g_send_mother[2] = g_detection_right;
+		    g_send_mother[3] = g_distance;
+		    send_mother(g_send_mother, 4);
+		}
+		else
+		{
+		    g_send_mother[0] = COMMAND_STOP;
+		    g_send_mother[1] = g_distance;
+		    send_mother(g_send_mother, 2);
+		}
 
 		/* last reset current state */
-		g_process_action = 0;
+		g_process_action &= ~PROCESS_ACTION_DISTANCE;
+	    }
+	}
+	if ((g_process_action & PROCESS_ACTION_DETECTION) == PROCESS_ACTION_DETECTION)
+	{
+	    g_detection_left  = digitalRead(PIN_DETECTION_LEFT);
+	    g_detection_right = digitalRead(PIN_DETECTION_RIGHT);
+
+	    if ((g_detection_left_old != g_detection_left) ||
+		(g_detection_right_old != g_detection_right))
+	    {
+		g_send_mother[0] = COMMAND_DETECTED;
+		g_send_mother[1] = digitalRead(PIN_DETECTION_LEFT);
+		g_send_mother[2] = digitalRead(PIN_DETECTION_RIGHT);
+		send_mother(g_send_mother, 3);
+
+		g_detection_left_old = g_detection_left;
+		g_detection_right_old = g_detection_right;
 	    }
 	}
     }
