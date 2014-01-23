@@ -110,9 +110,9 @@ void setup()
     pinMode(PIN_DETECTION_LEFT, INPUT);
     pinMode(PIN_DETECTION_RIGHT, INPUT);
     pinMode(PIN_DETECTION_LEFT_ENABLE, OUTPUT);
-    digitalWrite(PIN_DETECTION_LEFT_ENABLE, LOW);
+    digitalWrite(PIN_DETECTION_LEFT_ENABLE, HIGH);
     pinMode(PIN_DETECTION_RIGHT_ENABLE, OUTPUT);
-    digitalWrite(PIN_DETECTION_RIGHT_ENABLE, LOW);
+    digitalWrite(PIN_DETECTION_RIGHT_ENABLE, HIGH);
 
     /* Init input/output left motor */
     pinMode(PIN_MOT_L_SPEED, OUTPUT);
@@ -296,11 +296,6 @@ void process_command(void)
 	{
 	    stop();
 	    g_process_action  &= ~PROCESS_ACTION_DISTANCE;
-
-	    g_process_receive = PROCESS_RECEIVE_WAIT_COMMAND;
-
-	    /* last reset current state */
-	    g_process_command = 0;
 	}
 	else if (g_process_command == PROCESS_COMMAND_FORWARD)
 	{
@@ -313,11 +308,7 @@ void process_command(void)
 
 	    move(speed, DIRECTION_FORWARD);
 
-	    g_process_receive = PROCESS_RECEIVE_WAIT_COMMAND;
 	    g_process_action  |= PROCESS_ACTION_DISTANCE;
-
-	    /* last reset current state */
-	    g_process_command = 0;
 	}
 	else if (g_process_command == PROCESS_COMMAND_BACKWARD)
 	{
@@ -330,11 +321,7 @@ void process_command(void)
 
 	    move(speed, DIRECTION_BACKWARD);
 
-	    g_process_receive = PROCESS_RECEIVE_WAIT_COMMAND;
 	    g_process_action  |= PROCESS_ACTION_DISTANCE;
-
-	    /* last reset current state */
-	    g_process_command = 0;
 	}
 	else if (g_process_command == PROCESS_COMMAND_ROTATE_LEFT)
 	{
@@ -346,11 +333,7 @@ void process_command(void)
 	    g_distance_remaining = CONVERT_DEGREES_TO_TICS(g_recv_mother[2]);
 	    move(speed, DIRECTION_ROTATE_LEFT);
 
-	    g_process_receive = PROCESS_RECEIVE_WAIT_COMMAND;
 	    g_process_action  |= PROCESS_ACTION_DISTANCE;
-
-	    /* last reset current state */
-	    g_process_command = 0;
 	}
 	else if (g_process_command == PROCESS_COMMAND_ROTATE_RIGHT)
 	{
@@ -362,11 +345,7 @@ void process_command(void)
 	    g_distance_remaining = CONVERT_DEGREES_TO_TICS(g_recv_mother[2]);
 	    move(speed, DIRECTION_ROTATE_RIGHT);
 
-	    g_process_receive = PROCESS_RECEIVE_WAIT_COMMAND;
 	    g_process_action  |= PROCESS_ACTION_DISTANCE;
-
-	    /* last reset current state */
-	    g_process_command = 0;
 	}
 	else if (g_process_command == PROCESS_COMMAND_GET_COUNTERS_CM)
 	{
@@ -376,9 +355,6 @@ void process_command(void)
 	    g_send_mother[3] = (uint8_t)(CONVERT_TICS_TO_CENTIMETERS(g_motor_right_count) >> 8);
 	    g_send_mother[4] = (uint8_t)(CONVERT_TICS_TO_CENTIMETERS(g_motor_right_count) & 0xFF);
 	    send_mother(g_send_mother, 5);
-
-	    g_process_receive  = PROCESS_RECEIVE_WAIT_COMMAND;
-	    g_process_command  = 0;
 	}
 	else if (g_process_command == PROCESS_COMMAND_GET_COUNTERS_DEG)
 	{
@@ -388,9 +364,6 @@ void process_command(void)
 	    g_send_mother[3] = (uint8_t)(CONVERT_TICS_TO_DEGREES(g_motor_right_count) >> 8);
 	    g_send_mother[4] = (uint8_t)(CONVERT_TICS_TO_DEGREES(g_motor_right_count) & 0xFF);
 	    send_mother(g_send_mother, 5);
-
-	    g_process_receive  = PROCESS_RECEIVE_WAIT_COMMAND;
-	    g_process_command  = 0;
 	}
 	else if (g_process_command == PROCESS_COMMAND_GET_COUNTERS)
 	{
@@ -400,31 +373,26 @@ void process_command(void)
 	    g_send_mother[3] = (uint8_t)(g_motor_right_count >> 8);
 	    g_send_mother[4] = (uint8_t)(g_motor_right_count & 0xFF);
 	    send_mother(g_send_mother, 5);
-
-	    g_process_receive  = PROCESS_RECEIVE_WAIT_COMMAND;
-	    g_process_command  = 0;
 	}
 	else if (g_process_command == PROCESS_COMMAND_DETECTION)
 	{
 	    if ((g_process_action & PROCESS_ACTION_DETECTION) == PROCESS_ACTION_DETECTION)
 	    {
 		g_process_action &= ~PROCESS_ACTION_DETECTION;
-
-		g_process_receive  = PROCESS_RECEIVE_WAIT_COMMAND;
-		g_process_command  = 0;
 	    }
 	    else
 	    {
 		g_send_mother[0] = COMMAND_DETECTED;
-		g_send_mother[1] = digitalRead(PIN_DETECTION_LEFT);
-		g_send_mother[2] = digitalRead(PIN_DETECTION_RIGHT);
+		g_send_mother[1] = analogRead(PIN_DETECTION_LEFT);
+		g_send_mother[2] = analogRead(PIN_DETECTION_RIGHT);
 		send_mother(g_send_mother, 3);
 
-		g_process_receive  = PROCESS_RECEIVE_WAIT_COMMAND;
-		g_process_command  = 0;
 		g_process_action  |= PROCESS_ACTION_DETECTION;
 	    }
 	}
+
+	g_process_receive = PROCESS_RECEIVE_WAIT_COMMAND;
+	g_process_command = 0;
     }
 }
 
@@ -441,11 +409,11 @@ void process_action(void)
 	}
 	if ((g_process_action & PROCESS_ACTION_DISTANCE) == PROCESS_ACTION_DISTANCE)
 	{
-	    g_detection_left  = digitalRead(PIN_DETECTION_LEFT);
-	    g_detection_right = digitalRead(PIN_DETECTION_RIGHT);
+	    g_detection_left  = analogRead(PIN_DETECTION_LEFT);
+	    g_detection_right = analogRead(PIN_DETECTION_RIGHT);
 
 	    /* check if distance has been reached */
-	    if (((g_detection_left == 1) || (g_detection_right == 1)) ||
+	    if (((g_detection_left > 200) || (g_detection_right > 200)) ||
 		(g_distance >= g_distance_remaining) && (g_distance_remaining > 0))
 	    {
 		stop();
@@ -471,19 +439,20 @@ void process_action(void)
 	}
 	if ((g_process_action & PROCESS_ACTION_DETECTION) == PROCESS_ACTION_DETECTION)
 	{
-	    g_detection_left  = digitalRead(PIN_DETECTION_LEFT);
-	    g_detection_right = digitalRead(PIN_DETECTION_RIGHT);
+	    g_detection_left  = analogRead(PIN_DETECTION_LEFT);
+	    g_detection_right = analogRead(PIN_DETECTION_RIGHT);
 
 	    if ((g_detection_left_old != g_detection_left) ||
 		(g_detection_right_old != g_detection_right))
 	    {
 		g_send_mother[0] = COMMAND_DETECTED;
-		g_send_mother[1] = digitalRead(PIN_DETECTION_LEFT);
-		g_send_mother[2] = digitalRead(PIN_DETECTION_RIGHT);
+		g_send_mother[1] = g_detection_left;
+		g_send_mother[2] = g_detection_right;
 		send_mother(g_send_mother, 3);
 
 		g_detection_left_old = g_detection_left;
 		g_detection_right_old = g_detection_right;
+		delay(250);
 	    }
 	}
     }

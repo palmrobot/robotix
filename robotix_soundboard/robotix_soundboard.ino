@@ -1,3 +1,7 @@
+#include <WaveHC.h>
+#include <WaveUtil.h>
+
+
 /********************************************************/
 /*      Pin  definitions                                */
 /********************************************************/
@@ -10,11 +14,21 @@
 #define COMMAND_TEST			0x80 /* [0x80 Test] [Nb of bytes] [byte 1] [byte 2] ... [byte n] */
 #define COMMAND_TEST2			0x81 /* [0x81 Test2] [data1] [data2] */
 #define COMMAND_READY			0x82 /* [0x82 Ready] */
+#define COMMAND_INIT_ERROR		0x83 /* [0x84 End of file] */
+#define COMMAND_INIT_FAT_ERROR		0x84 /* [0x84 End of file] */
+#define COMMAND_INIT_ROOT_ERROR		0x85 /* [0x84 End of file] */
+
+#define COMMAND_PLAYING_FILE		0x86 /* [0x83 File is playing] */
+#define COMMAND_PLAY_END		0x87 /* [0x84 End of file] */
+
+#define COMMAND_FILE_NAME		0xA0 /* [0xA0 File name] [ n Data of filenanme ] */
+
 #define COMMAND_START			0xFE /* [0xFE Start transmission] */
 
+#define CMD_SEND_DATA_MAX		16
+uint8_t g_send_mother[CMD_SEND_DATA_MAX];
 
 #define CMD_DATA_MAX			6
-uint8_t g_send_mother[CMD_DATA_MAX];
 uint8_t g_recv_mother[CMD_DATA_MAX];
 
 /********************************************************/
@@ -23,14 +37,21 @@ uint8_t g_recv_mother[CMD_DATA_MAX];
 
 #define PROCESS_RECEIVE_DO_NOTHING		0
 #define PROCESS_RECEIVE_WAIT_COMMAND		1
-unsigned char g_process_receive;
+uint8_t g_process_receive;
 
 #define PROCESS_ACTION_INIT			0x01
-unsigned char g_process_action;
+#define PROCESS_ACTION_INIT_ERROR		0x02
+#define PROCESS_ACTION_INIT_FAT_ERROR		0x04
+#define PROCESS_ACTION_INIT_ROOT_ERROR		0x08
+#define PROCESS_ACTION_PLAYING			0x10
+uint16_t g_process_action;
 
 #define PROCESS_COMMAND_LIST			0xD1 /* [0xD1 List] */
+#define PROCESS_COMMAND_FILENAME		0xD2 /* [0xD2 Number of the file to get name ] */
+#define PROCESS_COMMAND_PLAYFILE		0xD3 /* [0xD3 Play this file number */
+#define PROCESS_COMMAND_STOP_PLAYING		0xD4 /* [0xD4 Stop playing] */
 #define PROCESS_COMMAND_START			0xFE /* [0xFE Start transmission */
-unsigned char g_process_command;
+uint8_t g_process_command;
 
 /********************************************************/
 /*      Global definitions                              */
@@ -39,30 +60,81 @@ uint8_t g_time_count;
 uint8_t g_recv_mother_nb;
 
 
+SdReader g_card;    /* This object holds the information for the card */
+FatVolume g_vol;    /* This holds the information for the partition on the card */
+FatReader g_root;   /* This holds the information for the filesystem on the card */
+
+/* buffer for directory reads */
+#define MAX_FILES				10
+dir_t	g_dirBuf[MAX_FILES];
+
+ /* This is the only wave (audio) object, since we will only play one at a time */
+WaveHC g_wave;
+
+FatReader g_file;
+
 void setup()
 {
-    /* Initialize the sensors input pin */
-
+    uint8_t partition;
+    /* Initialize the output pins for the DAC control. */
+    pinMode(2, OUTPUT);
+    pinMode(3, OUTPUT);
+    pinMode(4, OUTPUT);
+    pinMode(5, OUTPUT);
+    pinMode(10, OUTPUT);
 
     /* init process states */
     g_process_receive   = PROCESS_RECEIVE_WAIT_COMMAND;
     g_process_command   = 0;
     g_process_action    = PROCESS_ACTION_INIT;
 
+    if (!g_card.init(10))
+    {
+	g_process_action    = PROCESS_ACTION_INIT_ERROR;
+    }
+    else
+    {
+	/* enable optimize read - some cards may timeout. Disable if you're having problems */
+	g_card.partialBlockRead(true);
+
+
+	/* Now we will look for a FAT partition!
+	 * we have up to 5 slots to look in
+	 */
+	for (partition = 0; partition < 5; partition++)
+	{
+	    if (g_vol.init(g_card, partition))
+		break;
+	}
+
+	if (partition == 5)
+	{
+	    g_process_action    = PROCESS_ACTION_INIT_FAT_ERROR;
+	}
+	else
+	{
+
+	    /* Try to open the root directory */
+	    if (!g_root.openRoot(g_vol))
+	    {
+		g_process_action    = PROCESS_ACTION_INIT_ROOT_ERROR;
+	    }
+	}
+    }
+
     /* Init global variables */
 
 
-    /* init pipes */
+    /* init pipes */r
     g_recv_mother[0]	= 0;
     g_recv_mother_nb	= 0;
 
     g_send_mother[0]	= 0;
 
-    delay(1000);
+    delay(500);
 
     /* initialize serial communications at 115200 bps: */
     Serial.begin(115200);
-
 }
 
 /* Sound -> Mother */
@@ -74,10 +146,10 @@ void setup()
 /*  Data4 ->       */
 void send_mother(uint8_t *buffer, int len)
 {
-    uint8_t padding[CMD_DATA_MAX] = {0,0,0,0,0,0};
+    uint8_t padding[CMD_SEND_DATA_MAX] = {0};
 
-    if (len > CMD_DATA_MAX)
-	len = CMD_DATA_MAX;
+    if (len > CMD_SEND_DATA_MAX)
+	len = CMD_SEND_DATA_MAX;
 
     /* Send Start of transmission */
     Serial.write(COMMAND_START);
@@ -86,7 +158,62 @@ void send_mother(uint8_t *buffer, int len)
     Serial.write(buffer, len);
 
     /* Write padding Data */
-    Serial.write(padding, CMD_DATA_MAX - len);
+    Serial.write(padding, CMD_SEND_DATA_MAX - len);
+}
+
+uint8_t Read_card(FatReader &dir)
+{
+    FatReader file;
+    uint8_t nb_files = 0;
+
+    while (dir.readDir(g_dirBuf[nb_files]) > 0 && nb_files < MAX_FILES )
+    {
+	/* Read every file in the directory one at a time
+	 * Skip it if not a subdirectory and not a .WAV file
+	 */
+	if (!DIR_IS_SUBDIR(g_dirBuf[nb_files]) &&
+	    strncmp_P((char *)&g_dirBuf[nb_files].name[8], PSTR("WAV"), 3))
+	{
+	    continue;
+	}
+
+	if (!file.open(g_vol, g_dirBuf[nb_files]))
+	{
+	    continue;
+	}
+
+	/* check if we opened a new directory */
+	if (file.isDir())
+	{
+	    continue;
+	}
+	nb_files++;
+    }
+
+    return(nb_files - 1);
+}
+
+void send_file_name(uint8_t file_number)
+{
+    char name[13];
+
+    uint8_t j, i;
+
+    g_send_mother[0] = COMMAND_FILE_NAME;
+    j = 1;
+
+    for (i = 0; i < 11; i++)
+    {
+	if (g_dirBuf[file_number].name[i] == ' ')
+	    continue;
+
+	if (i == 8)
+	    g_send_mother[j++] = '.';
+
+	g_send_mother[j++] = g_dirBuf[file_number].name[i];
+    }
+
+    send_mother(g_send_mother, j);
 }
 
 void process_receive(void)
@@ -123,18 +250,52 @@ void process_receive(void)
 
 void process_command(void)
 {
-    unsigned char speed;
-    unsigned char i;
+    uint8_t file_number;
 
     if (g_process_command)
     {
 	if (g_process_command == PROCESS_COMMAND_LIST)
 	{
-	    g_process_receive = PROCESS_RECEIVE_WAIT_COMMAND;
-
-	    /* last reset current state */
-	    g_process_command = 0;
+	    Read_card(g_root);
 	}
+	else if (g_process_command == PROCESS_COMMAND_FILENAME)
+	{
+	    file_number =  g_recv_mother[1];
+	    if ((file_number >= 0) && (file_number < MAX_FILES))
+	    {
+		send_file_name(file_number);
+	    }
+	    else
+	    {
+		send_file_name(0);
+	    }
+	}
+	else if (g_process_command == PROCESS_COMMAND_PLAYFILE)
+	{
+	    file_number =  g_recv_mother[1];
+
+	    if (g_file.open(g_vol, g_dirBuf[file_number]))
+	    {
+		if (g_wave.create(g_file))
+		{
+		    g_wave.play();
+
+		    g_process_action |= PROCESS_ACTION_PLAYING;
+		}
+	    }
+	}
+	else if (g_process_command == PROCESS_COMMAND_STOP_PLAYING)
+	{
+	    if (g_wave.isplaying)
+	    {
+		g_wave.stop();
+		g_file.close();
+	    }
+	}
+
+
+	g_process_receive = PROCESS_RECEIVE_WAIT_COMMAND;
+	g_process_command = 0;
     }
 }
 
@@ -148,6 +309,44 @@ void process_action(void)
 	    send_mother(g_send_mother, 1);
 
 	    g_process_action &= ~PROCESS_ACTION_INIT;
+	}
+	if ((g_process_action & PROCESS_ACTION_INIT_ERROR) == PROCESS_ACTION_INIT_ERROR)
+	{
+	    g_send_mother[0] = COMMAND_INIT_ERROR;
+	    send_mother(g_send_mother, 1);
+
+	    g_process_action &= ~PROCESS_ACTION_INIT_ERROR;
+	}
+	if ((g_process_action & PROCESS_ACTION_INIT_FAT_ERROR) == PROCESS_ACTION_INIT_FAT_ERROR)
+	{
+	    g_send_mother[0] = COMMAND_INIT_FAT_ERROR;
+	    send_mother(g_send_mother, 1);
+
+	    g_process_action &= ~PROCESS_ACTION_INIT_FAT_ERROR;
+	}
+	if ((g_process_action & PROCESS_ACTION_INIT_ROOT_ERROR) == PROCESS_ACTION_INIT_ROOT_ERROR)
+	{
+	    g_send_mother[0] = COMMAND_INIT_ROOT_ERROR;
+	    send_mother(g_send_mother, 1);
+
+	    g_process_action &= ~PROCESS_ACTION_INIT_ROOT_ERROR;
+	}
+	if ((g_process_action & PROCESS_ACTION_PLAYING) == PROCESS_ACTION_PLAYING)
+	{
+	    if (g_wave.isplaying)
+	    {
+		g_send_mother[0] = COMMAND_PLAYING_FILE;
+		send_mother(g_send_mother, 1);
+		delay(1000);
+	    }
+	    else
+	    {
+		g_send_mother[0] = COMMAND_PLAY_END;
+		send_mother(g_send_mother, 1);
+		g_file.close();
+
+		g_process_action &= ~PROCESS_ACTION_PLAYING;
+	    }
 	}
     }
 }

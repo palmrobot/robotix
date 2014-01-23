@@ -59,17 +59,22 @@ uint8_t g_lcd_line;
 #define MOTOR_SEND_COMMAND_COUNTERS_DEG		0x09 /* [0x09 Get counters in degrees] */
 #define MOTOR_SEND_COMMAND_DETECTION		0x0A /* [0x0A Get Detection */
 
-#define MOTOR_SEND_COMMAND_START	0xFE /* [0xFE Start transmission] */
+#define MOTOR_SEND_COMMAND_START		0xFE /* [0xFE Start transmission] */
 
-#define CMD_DATA_MAX			6
+#define CMD_DATA_MAX				6
 uint8_t g_send_motor[CMD_DATA_MAX];
 uint8_t g_recv_motor[CMD_DATA_MAX];
 
-#define SOUND_SEND_COMMAND_LIST		0xD1 /* [0xD1 List ] */
-#define SOUND_SEND_COMMAND_START	0xFE /* [0xFE Start transmission] */
+#define SOUND_SEND_COMMAND_LIST			0xD1 /* [0xD1 List ] */
+#define SOUND_SEND_COMMAND_FILENAME		0xD2 /* [0xD2 Number of the file to get name ] */
+#define SOUND_SEND_COMMAND_PLAYFILE		0xD3 /* [0xD3 Play this file number */
+#define SOUND_SEND_COMMAND_STOP_PLAYING		0xD4 /* [0xD4 Stop playing] */
+#define SOUND_SEND_COMMAND_START		0xFE /* [0xFE Start transmission] */
 
 uint8_t g_send_sound[CMD_DATA_MAX];
-uint8_t g_recv_sound[CMD_DATA_MAX];
+
+#define CMD_RECV_DATA_MAX				16
+uint8_t g_recv_sound[CMD_RECV_DATA_MAX];
 
 /********************************************************/
 /*      Menus definitions                               */
@@ -301,6 +306,12 @@ uint8_t g_process_motor;
 #define PROCESS_SOUND_TEST			0x80 /* [0x80 Test] [Nb of writes] [write 1] [write 2] ... [write n] */
 #define PROCESS_SOUND_TEST2			0x81 /* [0x81 Test2] [data1] [data2] */
 #define PROCESS_SOUND_READY			0x82 /* [0x82 Ready] */
+#define PROCESS_SOUND_INIT_ERROR		0x83 /* [0x84 End of file] */
+#define PROCESS_SOUND_INIT_FAT_ERROR		0x84 /* [0x84 End of file] */
+#define PROCESS_SOUND_INIT_ROOT_ERROR		0x85 /* [0x84 End of file] */
+#define PROCESS_SOUND_PLAYING_FILE		0x86 /* [0x83 File is playing] */
+#define PROCESS_SOUND_PLAY_END			0x87 /* [0x84 End of file] */
+#define PROCESS_SOUND_FILE_NAME			0xA0 /* [0xA0 File name] [ n Data of filenanme ] */
 #define PROCESS_SOUND_START			0xFE /* Start transmission */
 uint8_t g_process_sound;
 
@@ -917,12 +928,12 @@ void process_motor(void)
 	    g_action_detection_left  = g_recv_motor[1];
 	    g_action_detection_right = g_recv_motor[2];
 
-	    if (g_action_detection_left == 1)
+	    if (g_action_detection_left < 30 )
 	    {
 		if (g_action_detection_left_old != g_action_detection_left)
 		{
 		    g_lcd.setCursor(0, 0);
-		    g_lcd.print("Left Obstacle ! ");
+		    g_lcd.print("Left obstacle ! ");
 		}
 	    }
 	    else
@@ -930,17 +941,17 @@ void process_motor(void)
 		if (g_action_detection_left_old != g_action_detection_left)
 		{
 		    g_lcd.setCursor(0, 0);
-		    g_lcd.print("Left Detecting  ");
+		    g_lcd.print("Left Detecting..");
 		}
 	    }
 	    g_action_detection_left_old = g_action_detection_left;
 
-	    if (g_action_detection_right == 1)
+	    if (g_action_detection_right < 30 )
 	    {
 		if (g_action_detection_right_old != g_action_detection_right)
 		{
 		    g_lcd.setCursor(0, 1);
-		    g_lcd.print("Right Obstacle !");
+		    g_lcd.print("Right obstacle !");
 		}
 	    }
 	    else
@@ -948,7 +959,7 @@ void process_motor(void)
 		if (g_action_detection_right_old != g_action_detection_right)
 		{
 		    g_lcd.setCursor(0, 1);
-		    g_lcd.print("Right Detecting ");
+		    g_lcd.print("Right Detecting.");
 		}
 	    }
 	    g_action_detection_right_old = g_action_detection_right;
@@ -1378,19 +1389,19 @@ void process_recv_sound(void)
     if (g_process_recv_sound)
     {
 	/* if we get a valid char, read char */
-	if (Serial.available() > 0)
+	if (Serial1.available() > 0)
 	{
 	    /* get Start Byte */
-	    value = Serial.read();
+	    value = Serial1.read();
 	    if (value == PROCESS_SOUND_START)
 	    {
 		/* Wait for serial */
-		while (Serial.available() < CMD_DATA_MAX);
+		while (Serial1.available() < CMD_RECV_DATA_MAX);
 
-		for(g_recv_sound_nb = 0; g_recv_sound_nb < CMD_DATA_MAX; g_recv_sound_nb++)
+		for(g_recv_sound_nb = 0; g_recv_sound_nb < CMD_RECV_DATA_MAX; g_recv_sound_nb++)
 		{
 		    /* get incoming write: */
-		    g_recv_sound[g_recv_sound_nb] = Serial.read();
+		    g_recv_sound[g_recv_sound_nb] = Serial1.read();
 		}
 		/* Set action plan */
 		g_process_sound = g_recv_sound[0];
@@ -1406,10 +1417,21 @@ void process_sound(void)
 {
     if (g_process_sound)
     {
-	if (g_process_sound == PROCESS_SOUND_READY)
+	if ((g_process_sound == PROCESS_SOUND_READY) ||
+	    (g_process_sound == PROCESS_SOUND_INIT_ERROR) ||
+	    (g_process_sound == PROCESS_SOUND_INIT_FAT_ERROR) ||
+	    (g_process_sound == PROCESS_SOUND_INIT_ROOT_ERROR))
 	{
 	    g_lcd.setCursor(8, 1);
-	    g_lcd.print("Ready !");
+	    if (g_process_sound == PROCESS_SOUND_READY)
+		g_lcd.print("Ready !");
+	    else if (g_process_sound == PROCESS_SOUND_INIT_ERROR)
+		g_lcd.print("Error !");
+	    else if (g_process_sound == PROCESS_SOUND_INIT_FAT_ERROR)
+		g_lcd.print("FAT Err");
+	    else
+		g_lcd.print("Root Er");
+
 	    g_start++;
 
 	    if (g_start == 2)
@@ -1423,6 +1445,19 @@ void process_sound(void)
 	    /* No Action */
 	    g_process_sound_action = 0;
 	}
+	else if (g_process_sound == PROCESS_SOUND_PLAYING_FILE)
+	{
+
+	}
+	else if (g_process_sound == PROCESS_SOUND_PLAY_END)
+	{
+
+	}
+	else if (g_process_sound == PROCESS_SOUND_FILE_NAME)
+	{
+
+	}
+
 	/* Message has been read, restart read serial */
 	g_process_recv_sound = PROCESS_RECV_SOUND_WAIT_COMMAND;
 
