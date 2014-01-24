@@ -16,10 +16,12 @@
 #define COMMAND_READY			0x82 /* [0x82 Ready] */
 #define COMMAND_INIT_ERROR		0x83 /* [0x84 End of file] */
 #define COMMAND_INIT_FAT_ERROR		0x84 /* [0x84 End of file] */
-#define COMMAND_INIT_ROOT_ERROR		0x85 /* [0x84 End of file] */
+#define COMMAND_INIT_ROOT_ERROR		0x85 /* [0x85 End of file] */
 
-#define COMMAND_PLAYING_FILE		0x86 /* [0x83 File is playing] */
-#define COMMAND_PLAY_END		0x87 /* [0x84 End of file] */
+#define COMMAND_PLAYING_FILE		0x86 /* [0x86 File is playing] */
+#define COMMAND_PLAY_END		0x87 /* [0x87 End of file] */
+#define COMMAND_FILE_NUMBER		0x88 /* [0x88 Number of file] */
+
 
 #define COMMAND_FILE_NAME		0xA0 /* [0xA0 File name] [ n Data of filenanme ] */
 
@@ -256,7 +258,9 @@ void process_command(void)
     {
 	if (g_process_command == PROCESS_COMMAND_LIST)
 	{
-	    Read_card(g_root);
+	    g_send_mother[0] = COMMAND_FILE_NUMBER;
+	    g_send_mother[1] = Read_card(g_root);
+	    send_mother(g_send_mother, 2);
 	}
 	else if (g_process_command == PROCESS_COMMAND_FILENAME)
 	{

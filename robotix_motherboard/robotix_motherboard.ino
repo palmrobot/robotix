@@ -306,11 +306,12 @@ uint8_t g_process_motor;
 #define PROCESS_SOUND_TEST			0x80 /* [0x80 Test] [Nb of writes] [write 1] [write 2] ... [write n] */
 #define PROCESS_SOUND_TEST2			0x81 /* [0x81 Test2] [data1] [data2] */
 #define PROCESS_SOUND_READY			0x82 /* [0x82 Ready] */
-#define PROCESS_SOUND_INIT_ERROR		0x83 /* [0x84 End of file] */
+#define PROCESS_SOUND_INIT_ERROR		0x83 /* [0x83 End of file] */
 #define PROCESS_SOUND_INIT_FAT_ERROR		0x84 /* [0x84 End of file] */
-#define PROCESS_SOUND_INIT_ROOT_ERROR		0x85 /* [0x84 End of file] */
-#define PROCESS_SOUND_PLAYING_FILE		0x86 /* [0x83 File is playing] */
-#define PROCESS_SOUND_PLAY_END			0x87 /* [0x84 End of file] */
+#define PROCESS_SOUND_INIT_ROOT_ERROR		0x85 /* [0x85 End of file] */
+#define PROCESS_SOUND_PLAYING_FILE		0x86 /* [0x86 File is playing] */
+#define PROCESS_SOUND_PLAY_END			0x87 /* [0x87 End of file] */
+#define PROCESS_SOUND_FILE_NUMBER		0x88 /* [0x88 File number] */
 #define PROCESS_SOUND_FILE_NAME			0xA0 /* [0xA0 File name] [ n Data of filenanme ] */
 #define PROCESS_SOUND_START			0xFE /* Start transmission */
 uint8_t g_process_sound;
@@ -850,7 +851,9 @@ void process_menu(void)
 		    g_send_sound[0] = SOUND_SEND_COMMAND_LIST;
 		    send_sound(g_send_sound, 1);
 
-		    g_process_sound_action = 0;
+		    g_file_number = 255;
+
+		    g_process_sound_action = PROCESS_ACTION_LIST;
 		    g_process_menu = 0;
 		}break;
 		case MENU_ACTION_PLAY_TEMP:
@@ -1417,7 +1420,23 @@ void process_sound(void)
 {
     if (g_process_sound)
     {
-	if ((g_process_sound == PROCESS_SOUND_READY) ||
+	if (g_process_sound == PROCESS_SOUND_PLAYING_FILE)
+	{
+
+	}
+	else if (g_process_sound == PROCESS_SOUND_PLAY_END)
+	{
+
+	}
+	else if (g_process_sound == PROCESS_SOUND_FILE_NAME)
+	{
+
+	}
+	else if (g_process_sound == PROCESS_SOUND_FILE_NUMBER)
+	{
+	    g_file_number = g_recv_sound[1];
+	}
+	else if ((g_process_sound == PROCESS_SOUND_READY) ||
 	    (g_process_sound == PROCESS_SOUND_INIT_ERROR) ||
 	    (g_process_sound == PROCESS_SOUND_INIT_FAT_ERROR) ||
 	    (g_process_sound == PROCESS_SOUND_INIT_ROOT_ERROR))
@@ -1441,21 +1460,6 @@ void process_sound(void)
 		g_lcd.clear();
 		g_lcd.print(g_menu[0].name);
 	    }
-
-	    /* No Action */
-	    g_process_sound_action = 0;
-	}
-	else if (g_process_sound == PROCESS_SOUND_PLAYING_FILE)
-	{
-
-	}
-	else if (g_process_sound == PROCESS_SOUND_PLAY_END)
-	{
-
-	}
-	else if (g_process_sound == PROCESS_SOUND_FILE_NAME)
-	{
-
 	}
 
 	/* Message has been read, restart read serial */
@@ -1470,9 +1474,10 @@ void process_sound_action(void)
 {
     if (g_process_sound_action)
     {
-
-
-
+	if ((g_process_sound_action & PROCESS_ACTION_LIST) == PROCESS_ACTION_LIST)
+	{
+	    
+	}
     }
 }
 
