@@ -127,7 +127,7 @@ void setup()
     /* Init global variables */
 
 
-    /* init pipes */r
+    /* init pipes */
     g_recv_mother[0]	= 0;
     g_recv_mother_nb	= 0;
 
@@ -276,6 +276,12 @@ void process_command(void)
 	}
 	else if (g_process_command == PROCESS_COMMAND_PLAYFILE)
 	{
+	    if (g_wave.isplaying)
+	    {
+		g_wave.stop();
+		g_file.close();
+	    }
+
 	    file_number =  g_recv_mother[1];
 
 	    if (g_file.open(g_vol, g_dirBuf[file_number]))

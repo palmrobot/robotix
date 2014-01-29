@@ -62,11 +62,10 @@ unsigned char g_process_command;
 /********************************************************/
 
 #define CONVERT_CENTIMETERS_TO_TICS(a)	(a * 31)
-#define CONVERT_DEGREES_TO_TICS(a)	(a / 10)
+#define CONVERT_DEGREES_TO_TICS(a)	((a * 10) / 24)
 
 #define CONVERT_TICS_TO_CENTIMETERS(a)	(a / 31)
-#define CONVERT_TICS_TO_DEGREES(a)	(a * 10)
-
+#define CONVERT_TICS_TO_DEGREES(a)	((a * 24) / 10)
 
 uint8_t g_time_count;
 unsigned int g_motor_left_count;
@@ -74,10 +73,10 @@ unsigned int g_motor_right_count;
 
 uint8_t g_recv_mother_nb;
 
-uint8_t g_distance_left;
-uint8_t g_distance_right;
-uint8_t g_distance;
-uint8_t g_distance_remaining;
+uint16_t g_distance_left;
+uint16_t g_distance_right;
+uint16_t g_distance;
+uint16_t g_distance_remaining;
 uint8_t g_detection_left;
 uint8_t g_detection_right;
 uint8_t g_detection_left_old;
@@ -110,9 +109,9 @@ void setup()
     pinMode(PIN_DETECTION_LEFT, INPUT);
     pinMode(PIN_DETECTION_RIGHT, INPUT);
     pinMode(PIN_DETECTION_LEFT_ENABLE, OUTPUT);
-    digitalWrite(PIN_DETECTION_LEFT_ENABLE, HIGH);
+    digitalWrite(PIN_DETECTION_LEFT_ENABLE, LOW);
     pinMode(PIN_DETECTION_RIGHT_ENABLE, OUTPUT);
-    digitalWrite(PIN_DETECTION_RIGHT_ENABLE, HIGH);
+    digitalWrite(PIN_DETECTION_RIGHT_ENABLE, LOW);
 
     /* Init input/output left motor */
     pinMode(PIN_MOT_L_SPEED, OUTPUT);
@@ -227,6 +226,9 @@ void move(uint8_t speed, uint8_t dir)
     digitalWrite(PIN_MOT_L_BRAKE, LOW);
     digitalWrite(PIN_MOT_R_BRAKE, LOW);
 
+    digitalWrite(PIN_DETECTION_LEFT_ENABLE, HIGH);
+    digitalWrite(PIN_DETECTION_RIGHT_ENABLE, HIGH);
+
     if (dir == DIRECTION_FORWARD)
     {
 	digitalWrite(PIN_MOT_R_DIR, LOW);
@@ -239,11 +241,17 @@ void move(uint8_t speed, uint8_t dir)
     }
     else if (dir == DIRECTION_ROTATE_LEFT)
     {
+	digitalWrite(PIN_DETECTION_LEFT_ENABLE, LOW);
+	digitalWrite(PIN_DETECTION_RIGHT_ENABLE, LOW);
+
 	digitalWrite(PIN_MOT_L_DIR, LOW);
 	digitalWrite(PIN_MOT_R_DIR, HIGH);
     }
     else
     {
+	digitalWrite(PIN_DETECTION_LEFT_ENABLE, LOW);
+	digitalWrite(PIN_DETECTION_RIGHT_ENABLE, LOW);
+
 	digitalWrite(PIN_MOT_L_DIR, HIGH);
 	digitalWrite(PIN_MOT_R_DIR, LOW);
     }
@@ -281,6 +289,8 @@ void stop(void)
     digitalWrite(PIN_MOT_R_BRAKE, HIGH);
     analogWrite(PIN_MOT_L_SPEED, 0);
     analogWrite(PIN_MOT_R_SPEED, 0);
+    digitalWrite(PIN_DETECTION_LEFT_ENABLE, LOW);
+    digitalWrite(PIN_DETECTION_RIGHT_ENABLE, LOW);
 
     g_direction = DIRECTION_STOP;
 }
@@ -330,7 +340,8 @@ void process_command(void)
 	    g_motor_left_count  = 0;
 
 	    speed		 = g_recv_mother[1];
-	    g_distance_remaining = CONVERT_DEGREES_TO_TICS(g_recv_mother[2]);
+	    g_distance_remaining = g_recv_mother[2];
+	    g_distance_remaining = CONVERT_DEGREES_TO_TICS(g_distance_remaining);
 	    move(speed, DIRECTION_ROTATE_LEFT);
 
 	    g_process_action  |= PROCESS_ACTION_DISTANCE;
@@ -342,7 +353,8 @@ void process_command(void)
 	    g_motor_left_count  = 0;
 
 	    speed		 = g_recv_mother[1];
-	    g_distance_remaining = CONVERT_DEGREES_TO_TICS(g_recv_mother[2]);
+	    g_distance_remaining = g_recv_mother[2];
+	    g_distance_remaining = CONVERT_DEGREES_TO_TICS(g_distance_remaining);
 	    move(speed, DIRECTION_ROTATE_RIGHT);
 
 	    g_process_action  |= PROCESS_ACTION_DISTANCE;
@@ -409,16 +421,24 @@ void process_action(void)
 	}
 	if ((g_process_action & PROCESS_ACTION_DISTANCE) == PROCESS_ACTION_DISTANCE)
 	{
-	    g_detection_left  = analogRead(PIN_DETECTION_LEFT);
-	    g_detection_right = analogRead(PIN_DETECTION_RIGHT);
+	    if ((g_direction == DIRECTION_FORWARD)  || (g_direction == DIRECTION_BACKWARD))
+	    {
+		g_detection_left  = analogRead(PIN_DETECTION_LEFT);
+		g_detection_right = analogRead(PIN_DETECTION_RIGHT);
+	    }
+	    else
+	    {
+		g_detection_left = 255;
+		g_detection_right = 255;
+	    }
 
 	    /* check if distance has been reached */
-	    if (((g_detection_left > 200) || (g_detection_right > 200)) ||
+	    if (((g_detection_left < 30) || (g_detection_right < 30)) ||
 		(g_distance >= g_distance_remaining) && (g_distance_remaining > 0))
 	    {
 		stop();
 
-		if ((g_detection_left == 1) || (g_detection_right == 1))
+		if ((g_detection_left < 30) || (g_detection_right < 30))
 		{
 		    g_send_mother[0] = COMMAND_RUNNING_DETECTION;
 		    g_send_mother[1] = g_detection_left;

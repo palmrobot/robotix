@@ -356,6 +356,9 @@ uint8_t g_action_detection_left_old;
 uint8_t g_action_detection_right_old;
 uint8_t g_action_temperature;
 uint8_t g_start;
+uint8_t g_file_number_max;
+uint8_t g_file_number;
+uint8_t g_file_name[CMD_RECV_DATA_MAX];
 
 uint8_t g_recv_motor_nb;
 uint8_t g_recv_sound_nb;
@@ -412,12 +415,14 @@ void setup()
     g_motor_right_direction = 0;
     g_motor_rotation	= 0;
     g_motor_distance	= 0;
-    g_motor_degrees	= 0;
+    g_motor_degrees	= 180;
     g_motor_unit	= 0;
     g_motor_curr_dist_right	= 0;
     g_motor_curr_dist_right_old	= 0;
     g_motor_curr_dist_left	= 0;
     g_motor_curr_dist_left_old	= 0;
+    g_file_number_max		= 255;
+    g_file_number		= 0;
 
     g_start		= 0;
 
@@ -528,11 +533,10 @@ void motor_forward(uint8_t distance, uint8_t speed)
 
 void motor_rotate(uint8_t degrees)
 {
-    g_motor_speed		= MOTOR_ROTATE_SPEED;
     g_motor_rotation		= MOTOR_LEFT_ROTATION;
 
     g_send_motor[0] = MOTOR_SEND_COMMAND_ROTATE_LEFT;
-    g_send_motor[1] = g_motor_speed;
+    g_send_motor[1] = MOTOR_ROTATE_SPEED;
     g_send_motor[2] = degrees;
     send_motor(g_send_motor, 3);
 }
@@ -831,7 +835,7 @@ void process_menu(void)
 		    delay(1000);
 		    g_action = ACTION_ROT_INIT;
 
-		    g_process_motor_action = PROCESS_ACTION_ROTATE;
+		    g_process_motor_action = PROCESS_ACTION_RUN;
 		    g_process_menu = 0;
 		}break;
 		case MENU_ACTION_SQUARE:
@@ -845,15 +849,17 @@ void process_menu(void)
 		    delay(1000);
 		    g_process_motor_action = PROCESS_ACTION_DETECT_BACK;
 		    g_process_menu = 0;
+
+		    g_action = ACTION_RUN;
 		}break;
 		case MENU_ACTION_LIST:
 		{
-		    g_send_sound[0] = SOUND_SEND_COMMAND_LIST;
-		    send_sound(g_send_sound, 1);
+		    g_send_sound[0] = SOUND_SEND_COMMAND_FILENAME;
+		    g_send_sound[1] = g_file_number;
+		    send_sound(g_send_sound, 2);
 
-		    g_file_number = 255;
+		    g_lcd.clear();
 
-		    g_process_sound_action = PROCESS_ACTION_LIST;
 		    g_process_menu = 0;
 		}break;
 		case MENU_ACTION_PLAY_TEMP:
@@ -936,7 +942,8 @@ void process_motor(void)
 		if (g_action_detection_left_old != g_action_detection_left)
 		{
 		    g_lcd.setCursor(0, 0);
-		    g_lcd.print("Left obstacle ! ");
+		    g_lcd.print("L Obstacle !  ");
+		    g_lcd.print(g_action_detection_left);g_lcd.print("  ");
 		}
 	    }
 	    else
@@ -944,7 +951,8 @@ void process_motor(void)
 		if (g_action_detection_left_old != g_action_detection_left)
 		{
 		    g_lcd.setCursor(0, 0);
-		    g_lcd.print("Left Detecting..");
+		    g_lcd.print("L Detecting.. ");
+		    g_lcd.print(g_action_detection_left);g_lcd.print("  ");
 		}
 	    }
 	    g_action_detection_left_old = g_action_detection_left;
@@ -954,7 +962,8 @@ void process_motor(void)
 		if (g_action_detection_right_old != g_action_detection_right)
 		{
 		    g_lcd.setCursor(0, 1);
-		    g_lcd.print("Right obstacle !");
+		    g_lcd.print("R Obstacle !  ");
+		    g_lcd.print(g_action_detection_right);g_lcd.print("  ");
 		}
 	    }
 	    else
@@ -962,7 +971,8 @@ void process_motor(void)
 		if (g_action_detection_right_old != g_action_detection_right)
 		{
 		    g_lcd.setCursor(0, 1);
-		    g_lcd.print("Right Detecting.");
+		    g_lcd.print("R Detecting.  ");
+		    g_lcd.print(g_action_detection_right);g_lcd.print("  ");
 		}
 	    }
 	    g_action_detection_right_old = g_action_detection_right;
@@ -1205,7 +1215,7 @@ void process_motor_action(void)
 		    g_motor_rotation = MOTOR_LEFT_ROTATION;
 
 		    g_lcd.setCursor(0, 1);
-		    g_lcd.print("Rotation Left   ");
+		    g_lcd.print("Rotation Left  ");
 
 		    /* end of threatment, re-enable the button for interrupt */
 		    g_button = NO_BUTTON;
@@ -1217,6 +1227,29 @@ void process_motor_action(void)
 
 		    g_lcd.setCursor(0, 1);
 		    g_lcd.print("Rotation Right  ");
+
+		    /* end of threatment, re-enable the button for interrupt */
+		    g_button = NO_BUTTON;
+		}
+		break;
+
+		case MIDDLE_BUTTON:
+		{
+		    if(g_motor_degrees <= 250)
+			g_motor_degrees += 5;
+		    g_lcd.setCursor(0, 0);
+		    g_lcd.print(g_motor_degrees); g_lcd.print(" Dg    ");
+
+		    /* end of threatment, re-enable the button for interrupt */
+		    g_button = NO_BUTTON;
+		}
+		break;
+		case DOWN_BUTTON:
+		{
+		    if(g_motor_degrees >= 5)
+			g_motor_degrees -= 5;
+		    g_lcd.setCursor(0, 0);
+		    g_lcd.print(g_motor_degrees); g_lcd.print(" Dg    ");
 
 		    /* end of threatment, re-enable the button for interrupt */
 		    g_button = NO_BUTTON;
@@ -1279,10 +1312,9 @@ void process_motor_action(void)
 		g_lcd.clear();
 		g_lcd.setCursor(0, 0);
 		g_lcd.print("Speed "); g_lcd.print(MOTOR_ROTATE_SPEED);
-		g_lcd.print(" Dg"); g_lcd.print(g_motor_degrees);
+		g_lcd.print(" Deg "); g_lcd.print(g_motor_degrees);
 
 		g_send_motor[1]  = MOTOR_ROTATE_SPEED;
-		g_motor_distance = 180;
 		g_send_motor[2]  = g_motor_degrees;
 		send_motor(g_send_motor, 3);
 
@@ -1362,17 +1394,55 @@ void process_motor_action(void)
 		    g_button = NO_BUTTON;
 	    }
 	}
-	else if (g_process_motor_action == PROCESS_ACTION_DETECT_BACK)
+	else if (g_process_motor_action == PROCESS_ACTION_ROTATE)
 	{
-	    if (g_action == ACTION_RUN_INIT)
+	    if (g_button == UP_BUTTON)
 	    {
-		/* move slowly until reach obstacle */
-		motor_forward(0,100);
-		g_action = ACTION_RUN;
+		go_up_menu();
+
+		g_process_motor_action = 0;
+		g_action = 0;
 	    }
-	    else if (g_action == ACTION_RUN)
+	    else
+		g_button = NO_BUTTON;
+
+	    if (g_action == ACTION_ROT_INIT)
 	    {
 		motor_rotate(180);
+	    }
+	}
+	else if (g_process_motor_action == PROCESS_ACTION_DETECT_BACK)
+	{
+	    if (g_button == UP_BUTTON)
+	    {
+		go_up_menu();
+
+		g_process_motor_action = 0;
+		g_action = 0;
+	    }
+	    else
+		g_button = NO_BUTTON;
+
+	    if (g_action == ACTION_RUN)
+	    {
+		delay(500);
+		/* move slowly until reach obstacle */
+		motor_forward(0,g_motor_speed);
+
+		/* no action, wait for detection */
+		g_action = 0;
+	    }
+	    else if (g_action == ACTION_DETECTED)
+	    {
+		delay(500);
+		motor_rotate(180);
+
+		/* no action, wait for detection */
+		g_action = 0;
+	    }
+	    else if (g_action == ACTION_STOP)
+	    {
+		g_action = ACTION_RUN;
 	    }
 	}
     }
@@ -1430,11 +1500,30 @@ void process_sound(void)
 	}
 	else if (g_process_sound == PROCESS_SOUND_FILE_NAME)
 	{
+	    strcpy((char*)g_file_name,(char*)&g_recv_sound[1]);
 
+	    g_lcd.setCursor(0, 0);
+	    if (g_file_number > 0)
+		g_lcd.print("< File : ");
+	    else
+		g_lcd.print("  File : ");
+	    g_lcd.print(g_file_number);
+	    g_lcd.print("/");
+	    g_lcd.print(g_file_number_max);
+	    g_lcd.print("     ");
+	    g_lcd.setCursor(15, 0);
+	    if (g_file_number < g_file_number_max)
+		g_lcd.print(">");
+
+	    g_lcd.setCursor(0, 1);
+	    if (g_file_name[0] != '\0')
+		g_lcd.print((char*)g_file_name);
+
+	    g_process_sound_action |= PROCESS_ACTION_LIST;
 	}
 	else if (g_process_sound == PROCESS_SOUND_FILE_NUMBER)
 	{
-	    g_file_number = g_recv_sound[1];
+	    g_file_number_max = g_recv_sound[1];
 	}
 	else if ((g_process_sound == PROCESS_SOUND_READY) ||
 	    (g_process_sound == PROCESS_SOUND_INIT_ERROR) ||
@@ -1443,7 +1532,13 @@ void process_sound(void)
 	{
 	    g_lcd.setCursor(8, 1);
 	    if (g_process_sound == PROCESS_SOUND_READY)
+	    {
 		g_lcd.print("Ready !");
+
+		/* Get max file number */
+		g_send_sound[0] = SOUND_SEND_COMMAND_LIST;
+		send_sound(g_send_sound, 1);
+	    }
 	    else if (g_process_sound == PROCESS_SOUND_INIT_ERROR)
 		g_lcd.print("Error !");
 	    else if (g_process_sound == PROCESS_SOUND_INIT_FAT_ERROR)
@@ -1476,7 +1571,72 @@ void process_sound_action(void)
     {
 	if ((g_process_sound_action & PROCESS_ACTION_LIST) == PROCESS_ACTION_LIST)
 	{
-	    
+	    /* Check which Button is hold */
+	    switch (g_button)
+	    {
+		case LEFT_BUTTON:
+		{
+		    if (g_file_number > 0)
+			g_file_number--;
+
+		    g_send_sound[0] = SOUND_SEND_COMMAND_FILENAME;
+		    g_send_sound[1] = g_file_number;
+		    send_sound(g_send_sound, 2);
+
+		    g_process_sound_action &= ~PROCESS_ACTION_LIST;
+
+		    /* end of threatment, re-enable the button for interrupt */
+		    g_button = NO_BUTTON;
+		}
+		break;
+		case RIGHT_BUTTON:
+		{
+		    if (g_file_number < g_file_number_max)
+			g_file_number++;
+
+		    g_send_sound[0] = SOUND_SEND_COMMAND_FILENAME;
+		    g_send_sound[1] = g_file_number;
+		    send_sound(g_send_sound, 2);
+
+		    g_process_sound_action &= ~PROCESS_ACTION_LIST;
+
+		    /* end of threatment, re-enable the button for interrupt */
+		    g_button = NO_BUTTON;
+		}
+		break;
+		case MIDDLE_BUTTON:
+		{
+		    g_send_sound[0] = SOUND_SEND_COMMAND_PLAYFILE;
+		    g_send_sound[1] = g_file_number;
+		    send_sound(g_send_sound, 2);
+
+		    /* end of threatment, re-enable the button for interrupt */
+		    g_button = NO_BUTTON;
+		}
+		break;
+		case UP_BUTTON:
+		{
+		    g_send_sound[0] = SOUND_SEND_COMMAND_STOP_PLAYING;
+		    send_sound(g_send_sound, 1);
+
+		    go_up_menu();
+		    g_process_sound_action &= ~PROCESS_ACTION_LIST;
+		}
+		break;
+		case DOWN_BUTTON:
+		{
+		    g_send_sound[0] = SOUND_SEND_COMMAND_STOP_PLAYING;
+		    send_sound(g_send_sound, 1);
+
+		    /* end of threatment, re-enable the button for interrupt */
+		    g_button = NO_BUTTON;
+		}
+		break;
+		default:
+		    /* end of threatment, re-enable the button for interrupt */
+		    g_button = NO_BUTTON;
+		break;
+	    }
 	}
     }
 }
