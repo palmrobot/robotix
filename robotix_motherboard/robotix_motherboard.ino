@@ -69,6 +69,7 @@ uint8_t g_recv_motor[CMD_DATA_MAX];
 #define SOUND_SEND_COMMAND_FILENAME		0xD2 /* [0xD2 Number of the file to get name ] */
 #define SOUND_SEND_COMMAND_PLAYFILE		0xD3 /* [0xD3 Play this file number */
 #define SOUND_SEND_COMMAND_STOP_PLAYING		0xD4 /* [0xD4 Stop playing] */
+#define SOUND_SEND_COMMAND_BEEP_KEY		0xD5 /* [0xD5 Playing Beep] */
 #define SOUND_SEND_COMMAND_START		0xFE /* [0xFE Start transmission] */
 
 uint8_t g_send_sound[CMD_DATA_MAX];
@@ -565,6 +566,9 @@ void go_up_menu(void)
 	g_menu_idx = g_menu_tree_idx[g_menu_tree_level];
 	g_menu = g_menu_tree[g_menu_tree_level];
 
+	/* Play beep */
+	beep(4);
+
 	/* clear LCD before displaying new menu or action */
 	g_lcd.clear();
 	g_lcd.print(g_menu[g_menu_idx].name);
@@ -575,6 +579,13 @@ void go_up_menu(void)
     /* end of threatment, re-enable the button for interrupt */
     g_button = NO_BUTTON;
 
+}
+
+void beep(uint8_t type)
+{
+    g_send_sound[0] = SOUND_SEND_COMMAND_BEEP_KEY;
+    g_send_sound[1] = type;
+    send_sound(g_send_sound, 1);
 }
 
 void gestion_menu(void)
@@ -590,6 +601,9 @@ void gestion_menu(void)
 	    if (g_menu_idx > 0)
 	    {
 		g_menu_idx--;
+
+		/* Play beep */
+		beep(1);
 
 		/* clear LCD before displaying new menu or action */
 		g_lcd.clear();
@@ -607,6 +621,9 @@ void gestion_menu(void)
 	    if (g_menu[g_menu_idx+1].name[0] != '\0')
 	    {
 		g_menu_idx++;
+
+		/* Play beep */
+		beep(2);
 
 		/* clear LCD before displaying new menu or action */
 		g_lcd.clear();
@@ -631,6 +648,9 @@ void gestion_menu(void)
 
 	    /* increase tree level */
 	    g_menu_tree_level++;
+
+	    /* Play beep */
+	    beep(3);
 
 	    /* end of threatment, re-enable the button for interrupt */
 	    g_button = NO_BUTTON;

@@ -52,6 +52,7 @@ uint16_t g_process_action;
 #define PROCESS_COMMAND_FILENAME		0xD2 /* [0xD2 Number of the file to get name ] */
 #define PROCESS_COMMAND_PLAYFILE		0xD3 /* [0xD3 Play this file number */
 #define PROCESS_COMMAND_STOP_PLAYING		0xD4 /* [0xD4 Stop playing] */
+#define PROCESS_COMMAND_BEEP_KEY		0xD5 /* [0xD5 Playing Beep] */
 #define PROCESS_COMMAND_START			0xFE /* [0xFE Start transmission */
 uint8_t g_process_command;
 
@@ -294,6 +295,24 @@ void process_command(void)
 		}
 	    }
 	}
+	else if (g_process_command == PROCESS_COMMAND_BEEP_KEY)
+	{
+	    if (g_wave.isplaying)
+	    {
+		g_wave.stop();
+		g_file.close();
+	    }
+
+	    file_number =  g_recv_mother[1];
+
+	    if (g_file.open(g_vol, g_dirBuf[file_number]))
+	    {
+		if (g_wave.create(g_file))
+		{
+		    g_wave.play();
+		}
+	    }
+	}
 	else if (g_process_command == PROCESS_COMMAND_STOP_PLAYING)
 	{
 	    if (g_wave.isplaying)
@@ -303,8 +322,8 @@ void process_command(void)
 	    }
 	}
 
-
 	g_process_receive = PROCESS_RECEIVE_WAIT_COMMAND;
+
 	g_process_command = 0;
     }
 }
