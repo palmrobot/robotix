@@ -14,6 +14,7 @@
 
 /* sensors */
 #define PIN_TEMPERATURE		A0
+#define PIN_ANALOG1		A1
 
 /* LCD */
 #define PIN_LCD_RS		38
@@ -103,6 +104,7 @@ uint8_t g_recv_sound[CMD_RECV_DATA_MAX];
 #define    MENU_ACTION_PLAY_DETECT	19
 #define    MENU_ACTION_ROT		20
 #define    MENU_ACTION_UNIT		21
+#define    MENU_ACTION_ANALOG		22
 
 typedef struct menu_t
 {
@@ -142,7 +144,7 @@ enum menu_prog_e
 };
 
 menu_t g_menu_prog[] = {{"Ping Pong      >", 1, MENU_PROG_1, MENU_ACTION_DETECT_BACK},
-			{"<Program 2     >", 1, MENU_PROG_2, MENU_ACTION_PROG2},
+			{"<Analog        >", 1, MENU_PROG_2, MENU_ACTION_ANALOG},
 			{"<Program 3      ", 1, MENU_PROG_3, MENU_ACTION_PROG3},
 			{"", 1, MENU_PROG_END, MENU_ACTION_NONE}};
 
@@ -261,10 +263,16 @@ menu_t *g_menu;
 /* process MENU */
 uint8_t g_process_menu;
 
+
+/* process MOTHER */
+#define PROCESS_MOTHER_ACTION_TEMPERATURE	1
+#define PROCESS_MOTHER_ACTION_ANALOG		2
+uint8_t g_process_mother_action;
+
 /* process ACTION */
 #define PROCESS_ACTION_NONE			0
 #define PROCESS_ACTION_DETECTION		1
-#define PROCESS_ACTION_TEMPERATURE		2
+
 #define PROCESS_ACTION_PROG_1			3
 #define PROCESS_ACTION_PROG_2			4
 #define PROCESS_ACTION_PROG_3			5
@@ -356,6 +364,7 @@ uint8_t g_action_detection_right;
 uint8_t g_action_detection_left_old;
 uint8_t g_action_detection_right_old;
 uint8_t g_action_temperature;
+uint8_t g_action_analog1;
 uint8_t g_start;
 uint8_t g_file_number_max;
 uint8_t g_file_number;
@@ -396,6 +405,7 @@ void setup()
 
     /* init process states */
     g_process_menu = 0;
+    g_process_mother_action = 0;
     g_process_motor_action = 0;
     g_process_sound_action = 0;
     g_process_recv_motor = PROCESS_RECV_MOTOR_WAIT_COMMAND;
@@ -411,6 +421,7 @@ void setup()
 
     /* Global stuff*/
     g_action_temperature = 0;
+    g_action_analog1	 = 0;
     g_motor_speed	 = 120;
     g_motor_left_direction = 0;
     g_motor_right_direction = 0;
@@ -742,21 +753,15 @@ void process_menu(void)
 		}break;
 		case MENU_ACTION_TEMPERATURE:
 		{
-		    g_process_motor_action = PROCESS_ACTION_TEMPERATURE;
+		    g_process_mother_action = PROCESS_MOTHER_ACTION_TEMPERATURE;
 		    g_action_temperature = 0;
 		    g_process_menu = 0;
 		}break;
-		case MENU_ACTION_PROG1:
+		case MENU_ACTION_ANALOG:
 		{
-		    g_process_motor_action = 0;/*PROCESS_ACTION_PROG_1;*/
-		}break;
-		case MENU_ACTION_PROG2:
-		{
-		    g_process_motor_action = 0; /*PROCESS_ACTION_PROG_2;*/
-		}break;
-		case MENU_ACTION_PROG3:
-		{
-		    g_process_motor_action = 0; /* PROCESS_ACTION_PROG_3;*/
+		    g_process_mother_action = PROCESS_MOTHER_ACTION_ANALOG;
+		    g_action_analog1 = 0;
+		    g_process_menu = 0;
 		}break;
 		case MENU_ACTION_SPEED:
 		{
@@ -897,10 +902,80 @@ void process_menu(void)
 
 /********************************************************************************************************/
 /*													*/
+/*				Mother									*/
+/*													*/
+/********************************************************************************************************/
+void process_mother_action(void)
+{
+    int value;
+    int analog_value;
+
+    if (g_process_mother_action)
+    {
+	if (g_process_mother_action == PROCESS_MOTHER_ACTION_TEMPERATURE)
+	{
+	    analog_value = analogRead(PIN_TEMPERATURE);
+
+	    if ((analog_value > (g_action_temperature + 1)) ||
+		(analog_value < (g_action_temperature - 1)))
+	    {
+		value = (500.0 * analog_value) / 1024;
+
+		g_lcd.setCursor(0, 1);
+		g_lcd.print("Temp =  ");
+		g_lcd.print(value);
+		g_lcd.print("C     ");
+		g_action_temperature = analog_value;
+	    }
+
+	    if (g_button == UP_BUTTON)
+	    {
+		go_up_menu();
+
+		g_process_mother_action = 0;
+		g_action_temperature = 0;
+	    }
+	    else
+	    {
+		g_button = NO_BUTTON;
+	    }
+	}
+	else if (g_process_mother_action == PROCESS_MOTHER_ACTION_ANALOG)
+	{
+	    analog_value = analogRead(PIN_ANALOG1);
+
+	    if (analog_value != g_action_analog1 )
+	    {
+		g_lcd.setCursor(0, 1);
+		g_lcd.print("Analog = ");
+		g_lcd.print(analog_value);
+		g_lcd.print("    ");
+		g_action_analog1 = analog_value;
+		delay(500);
+	    }
+
+	    if (g_button == UP_BUTTON)
+	    {
+		go_up_menu();
+
+		g_process_mother_action = 0;
+		g_action_analog1 = 0;
+	    }
+	    else
+	    {
+		g_button = NO_BUTTON;
+	    }
+	}
+    }
+}
+
+/********************************************************************************************************/
+/*													*/
 /*				Motor									*/
 /*													*/
 /********************************************************************************************************/
 
+/* Read Serial from motor only when last message has been treaten */
 void process_recv_motor(void)
 {
     uint8_t value;
@@ -932,6 +1007,7 @@ void process_recv_motor(void)
     }
 }
 
+/* execute action of message received from motor board */
 void process_motor(void)
 {
     if (g_process_motor)
@@ -1022,11 +1098,9 @@ void process_motor(void)
     }
 }
 
+/* Running in continue to treat some action required by motor board */
 void process_motor_action(void)
 {
-    int value;
-    int analog_value;
-
     if (g_process_motor_action)
     {
 	if (g_process_motor_action == PROCESS_ACTION_DETECTION)
@@ -1045,35 +1119,6 @@ void process_motor_action(void)
 	    {
 		g_button = NO_BUTTON;
 	    }
-	}
-	else if (g_process_motor_action == PROCESS_ACTION_TEMPERATURE)
-	{
-	    analog_value = analogRead(PIN_TEMPERATURE);
-
-	    if ((analog_value > (g_action_temperature + 1)) ||
-		(analog_value < (g_action_temperature - 1)))
-	    {
-		value = (500.0 * analog_value) / 1024;
-
-		g_lcd.setCursor(0, 1);
-		g_lcd.print("Temp =  ");
-		g_lcd.print(value);
-		g_lcd.print("C     ");
-		g_action_temperature = analog_value;
-	    }
-
-	    if (g_button == UP_BUTTON)
-	    {
-		go_up_menu();
-
-		g_process_motor_action = 0;
-		g_action_temperature = 0;
-	    }
-	    else
-	    {
-		g_button = NO_BUTTON;
-	    }
-
 	}
 	else if (g_process_motor_action == PROCESS_ACTION_SPEED)
 	{
@@ -1537,7 +1582,10 @@ void process_sound(void)
 
 	    g_lcd.setCursor(0, 1);
 	    if (g_file_name[0] != '\0')
+	    {
 		g_lcd.print((char*)g_file_name);
+		g_lcd.print("         ");
+	    }
 
 	    g_process_sound_action |= PROCESS_ACTION_LIST;
 	}
@@ -1670,4 +1718,5 @@ void loop(void)
     process_motor_action();
     process_sound();
     process_sound_action();
+    process_mother_action();
 }
