@@ -53,6 +53,9 @@ uint16_t g_process_action;
 #define PROCESS_COMMAND_PLAYFILE		0xD3 /* [0xD3 Play this file number */
 #define PROCESS_COMMAND_STOP_PLAYING		0xD4 /* [0xD4 Stop playing] */
 #define PROCESS_COMMAND_BEEP_KEY		0xD5 /* [0xD5 Playing Beep] */
+#define PROCESS_COMMAND_NOTE			0xD6 /* [0xD6 Playing Note] */
+#define PROCESS_COMMAND_MOTOR			0xD7 /* [0xD7 Playing motor sound] */
+#define PROCESS_COMMAND_HELLO			0xD8 /* [0xD8 Playing hello sound] */
 #define PROCESS_COMMAND_START			0xFE /* [0xFE Start transmission */
 uint8_t g_process_command;
 
@@ -65,6 +68,7 @@ uint8_t g_recv_mother_nb;
 
 SdReader g_card;    /* This object holds the information for the card */
 FatVolume g_vol;    /* This holds the information for the partition on the card */
+
 FatReader g_root;   /* This holds the information for the filesystem on the card */
 
 /* buffer for directory reads */
@@ -75,6 +79,36 @@ dir_t	g_dirBuf[MAX_FILES];
 WaveHC g_wave;
 
 FatReader g_file;
+dir_t g_file_to_play;
+
+char g_file_beep[]  = "_beep   ";
+char g_file_motor[]  = "_motor  ";
+char g_file_start[]  = "_start  ";
+char g_wav[] = "wav";
+
+char *g_file_note[]   = {"_do     ",
+			 "_re     ",
+			 "_mi     ",
+			 "_fa     ",
+			 "_so     ",
+			 "_la     ",
+			 "_si     "};
+
+enum note_e
+{
+    NOTE_DO = 0,
+    NOTE_RE,
+    NOTE_MI,
+    NOTE_FA,
+    NOTE_SO,
+    NOTE_LA,
+    NOTE_SI,
+    NOTE_END
+};
+
+#define PLAY_ONE_TIME		0
+#define PLAY_REPEAT		1
+uint8_t g_play_type;
 
 void setup()
 {
@@ -126,7 +160,7 @@ void setup()
     }
 
     /* Init global variables */
-
+    g_play_type = PLAY_ONE_TIME;
 
     /* init pipes */
     g_recv_mother[0]	= 0;
@@ -134,10 +168,10 @@ void setup()
 
     g_send_mother[0]	= 0;
 
-    delay(500);
-
     /* initialize serial communications at 115200 bps: */
     Serial.begin(115200);
+
+    delay(100);
 }
 
 /* Sound -> Mother */
@@ -164,7 +198,7 @@ void send_mother(uint8_t *buffer, int len)
     Serial.write(padding, CMD_SEND_DATA_MAX - len);
 }
 
-uint8_t Read_card(FatReader &dir)
+uint8_t Read_card(FatReader dir)
 {
     FatReader file;
     uint8_t nb_files = 0;
@@ -172,10 +206,11 @@ uint8_t Read_card(FatReader &dir)
     while (dir.readDir(g_dirBuf[nb_files]) > 0 && nb_files < MAX_FILES )
     {
 	/* Read every file in the directory one at a time
-	 * Skip it if not a subdirectory and not a .WAV file
+	 * Skip it if not a subdirectory and not a .WAV file and not a system file starting with '_'
 	 */
 	if (!DIR_IS_SUBDIR(g_dirBuf[nb_files]) &&
-	    strncmp_P((char *)&g_dirBuf[nb_files].name[8], PSTR("WAV"), 3))
+	    (strncmp_P((char *)&g_dirBuf[nb_files].name[8], PSTR("WAV"), 3) != 0) &&
+	    (g_dirBuf[nb_files].name[0] == '_'))
 	{
 	    continue;
 	}
@@ -186,11 +221,11 @@ uint8_t Read_card(FatReader &dir)
 	}
 
 	/* check if we opened a new directory */
-	if (file.isDir())
+	if (!file.isDir())
 	{
-	    continue;
+	    nb_files++;
 	}
-	nb_files++;
+	file.close();
     }
 
     return(nb_files - 1);
@@ -198,8 +233,6 @@ uint8_t Read_card(FatReader &dir)
 
 void send_file_name(uint8_t file_number)
 {
-    char name[13];
-
     uint8_t j, i;
 
     g_send_mother[0] = COMMAND_FILE_NAME;
@@ -254,6 +287,7 @@ void process_receive(void)
 void process_command(void)
 {
     uint8_t file_number;
+    uint8_t note;
 
     if (g_process_command)
     {
@@ -290,7 +324,6 @@ void process_command(void)
 		if (g_wave.create(g_file))
 		{
 		    g_wave.play();
-
 		    g_process_action |= PROCESS_ACTION_PLAYING;
 		}
 	    }
@@ -303,13 +336,83 @@ void process_command(void)
 		g_file.close();
 	    }
 
-	    file_number =  g_recv_mother[1];
+	    g_play_type = g_recv_mother[1];
+	    strncpy((char *)&g_file_to_play.name[0], g_file_beep, 8);
+	    strncpy((char *)&g_file_to_play.name[8], g_wav, 3);
 
-	    if (g_file.open(g_vol, g_dirBuf[file_number]))
+	    if (g_file.open(g_vol, g_file_to_play))
 	    {
 		if (g_wave.create(g_file))
 		{
 		    g_wave.play();
+		    g_process_action |= PROCESS_ACTION_PLAYING;
+		}
+	    }
+	}
+	else if (g_process_command == PROCESS_COMMAND_MOTOR)
+	{
+	    if (g_wave.isplaying)
+	    {
+		g_wave.stop();
+		g_file.close();
+	    }
+
+	    g_play_type = g_recv_mother[1];
+	    strncpy((char *)&g_file_to_play.name[0], g_file_motor, 8);
+	    strncpy((char *)&g_file_to_play.name[8], g_wav, 3);
+
+	    if (g_file.open(g_vol, g_file_to_play))
+	    {
+		if (g_wave.create(g_file))
+		{
+		    g_wave.play();
+		    g_process_action |= PROCESS_ACTION_PLAYING;
+		}
+	    }
+	}
+	else if (g_process_command == PROCESS_COMMAND_HELLO)
+	{
+	    if (g_wave.isplaying)
+	    {
+		g_wave.stop();
+		g_file.close();
+	    }
+
+	    g_play_type = g_recv_mother[1];
+	    strncpy((char *)&g_file_to_play.name[0], g_file_start, 8);
+	    strncpy((char *)&g_file_to_play.name[8], g_wav, 3);
+
+	    if (g_file.open(g_vol, g_file_to_play))
+	    {
+		if (g_wave.create(g_file))
+		{
+		    g_wave.play();
+		    g_process_action |= PROCESS_ACTION_PLAYING;
+		}
+	    }
+	}
+	else if (g_process_command == PROCESS_COMMAND_NOTE)
+	{
+	    if (g_wave.isplaying)
+	    {
+		g_wave.stop();
+		g_file.close();
+	    }
+
+	    note =  g_recv_mother[1];
+
+	    strncpy((char *)&g_file_to_play.name[0], g_file_note[note], 8);
+	    strncpy((char *)&g_file_to_play.name[8], g_wav, 3);
+
+	    if ((note >= NOTE_DO) && (note < NOTE_END))
+	    {
+		if (g_file.open(g_vol, g_file_to_play))
+		{
+		    if (g_wave.create(g_file))
+		    {
+			g_wave.play();
+			g_process_action |= PROCESS_ACTION_PLAYING;
+		    }
 		}
 	    }
 	}
@@ -334,6 +437,17 @@ void process_action(void)
     {
 	if ((g_process_action & PROCESS_ACTION_INIT) == PROCESS_ACTION_INIT)
 	{
+	    strncpy((char *)&g_file_to_play.name[0], g_file_start, 8);
+	    strncpy((char *)&g_file_to_play.name[8], g_wav, 3);
+
+	    if (g_file.open(g_vol, g_file_to_play))
+	    {
+		if (g_wave.create(g_file))
+		{
+		    g_wave.play();
+		}
+	    }
+
 	    g_send_mother[0] = COMMAND_READY;
 	    send_mother(g_send_mother, 1);
 
@@ -367,6 +481,10 @@ void process_action(void)
 		g_send_mother[0] = COMMAND_PLAYING_FILE;
 		send_mother(g_send_mother, 1);
 		delay(1000);
+	    }
+	    else if (g_play_type == PLAY_REPEAT)
+	    {
+		g_wave.play();
 	    }
 	    else
 	    {

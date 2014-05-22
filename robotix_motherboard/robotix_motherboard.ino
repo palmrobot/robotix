@@ -24,6 +24,16 @@
 #define PIN_LCD_D6 		30
 #define PIN_LCD_D7 		28
 
+
+/* Notes */
+#define PIN_NOTE1		A1
+#define PIN_NOTE2		A2
+#define PIN_NOTE3		A3
+#define PIN_NOTE4		A4
+#define PIN_NOTE5		A5
+#define PIN_NOTE6		A6
+#define PIN_NOTE7		A7
+
 /********************************************************/
 /*      Buttons definitions                             */
 /********************************************************/
@@ -71,6 +81,9 @@ uint8_t g_recv_motor[CMD_DATA_MAX];
 #define SOUND_SEND_COMMAND_PLAYFILE		0xD3 /* [0xD3 Play this file number */
 #define SOUND_SEND_COMMAND_STOP_PLAYING		0xD4 /* [0xD4 Stop playing] */
 #define SOUND_SEND_COMMAND_BEEP_KEY		0xD5 /* [0xD5 Playing Beep] */
+#define SOUND_SEND_COMMAND_NOTE			0xD6 /* [0xD6 Playing noteDO Note] */
+#define SOUND_SEND_COMMAND_MOTOR		0xD7 /* [0xD7 Playing motor sound] */
+#define SOUND_SEND_COMMAND_HELLO		0xD8 /* [0xD8 Playing hello sound] */
 #define SOUND_SEND_COMMAND_START		0xFE /* [0xFE Start transmission] */
 
 uint8_t g_send_sound[CMD_DATA_MAX];
@@ -105,6 +118,7 @@ uint8_t g_recv_sound[CMD_RECV_DATA_MAX];
 #define    MENU_ACTION_ROT		20
 #define    MENU_ACTION_UNIT		21
 #define    MENU_ACTION_ANALOG		22
+#define    MENU_ACTION_PLAY_NOTE	23
 
 typedef struct menu_t
 {
@@ -185,15 +199,17 @@ menu_t g_menu_motor_move[] = { {"Move          >", 1, MENU_MOTOR_MOVE_RUN, MENU_
 enum menu_sound_e
 {
     MENU_SOUND_LIST = 0,
+    MENU_SOUND_PLAY_NOTE,
     MENU_SOUND_PLAY_TEMP,
     MENU_SOUND_PLAY_DETECT,
     MENU_SOUND_END,
 };
 
-menu_t g_menu_sound[] = {{"List           >", 1, MENU_SOUND_LIST, MENU_ACTION_LIST},
-			{"<Play Temp     >", 1, MENU_SOUND_PLAY_TEMP, MENU_ACTION_PLAY_TEMP},
-			{"<Play Detection ", 1, MENU_SOUND_PLAY_DETECT, MENU_ACTION_PLAY_DETECT},
-			{"", 1, MENU_SOUND_END, MENU_ACTION_NONE}};
+menu_t g_menu_sound[] = { {"List           >", 1, MENU_SOUND_LIST, MENU_ACTION_LIST},
+			  {"<Play Note     >", 1, MENU_SOUND_PLAY_NOTE, MENU_ACTION_PLAY_NOTE},
+			  {"<Play Temp     >", 1, MENU_SOUND_PLAY_TEMP, MENU_ACTION_PLAY_TEMP},
+			  {"<Play Detection ", 1, MENU_SOUND_PLAY_DETECT, MENU_ACTION_PLAY_DETECT},
+			  {"", 1, MENU_SOUND_END, MENU_ACTION_NONE}};
 
 
 enum menu_speed_e
@@ -286,6 +302,7 @@ uint8_t g_process_mother_action;
 #define PROCESS_ACTION_LIST			13
 #define PROCESS_ACTION_ROT			14
 #define PROCESS_ACTION_UNIT			15
+#define PROCESS_ACTION_PLAY_NOTE		16
 uint8_t g_process_motor_action;
 
 
@@ -328,6 +345,7 @@ uint8_t g_process_sound;
 /********************************************************/
 /*      Global definitions                              */
 /********************************************************/
+
 #define MOTOR_DIRECTION_FORWARD			0
 #define MOTOR_DIRECTION_BACKWARD		1
 uint8_t g_motor_left_direction;
@@ -344,6 +362,7 @@ uint8_t g_motor_rotation;
 #define ACTION_STOP				5
 #define ACTION_DETECTED				6
 #define ACTION_END				7
+#define ACTION_PLAY_NOTE			8
 uint8_t g_action;
 
 #define MOTOR_UNIT_CM				0
@@ -364,6 +383,7 @@ uint8_t g_action_detection_right;
 uint8_t g_action_detection_left_old;
 uint8_t g_action_detection_right_old;
 uint8_t g_action_temperature;
+uint8_t g_action_note;
 uint8_t g_action_analog1;
 uint8_t g_start;
 uint8_t g_file_number_max;
@@ -374,6 +394,21 @@ uint8_t g_recv_motor_nb;
 uint8_t g_recv_sound_nb;
 
 #define MOTOR_ROTATE_SPEED			100
+
+#define PLAY_ONE_TIME				0
+#define PLAY_REPEAT				1
+
+enum note_e
+{
+    NOTE_DO = 0,
+    NOTE_RE,
+    NOTE_MI,
+    NOTE_FA,
+    NOTE_SO,
+    NOTE_LA,
+    NOTE_SI,
+    NOTE_END
+};
 
 
 void setup()
@@ -420,6 +455,7 @@ void setup()
     g_action_detection_right  = 0;
 
     /* Global stuff*/
+    g_action_note = 0;
     g_action_temperature = 0;
     g_action_analog1	 = 0;
     g_motor_speed	 = 120;
@@ -533,6 +569,8 @@ void send_sound(uint8_t *buffer, int len)
 
 void motor_forward(uint8_t distance, uint8_t speed)
 {
+    play_motor(PLAY_REPEAT);
+
     g_motor_left_direction	= MOTOR_DIRECTION_FORWARD;
     g_motor_speed		= speed;
     g_motor_distance		= distance;
@@ -578,7 +616,7 @@ void go_up_menu(void)
 	g_menu = g_menu_tree[g_menu_tree_level];
 
 	/* Play beep */
-	beep(4);
+	beep(PLAY_ONE_TIME);
 
 	/* clear LCD before displaying new menu or action */
 	g_lcd.clear();
@@ -596,7 +634,14 @@ void beep(uint8_t type)
 {
     g_send_sound[0] = SOUND_SEND_COMMAND_BEEP_KEY;
     g_send_sound[1] = type;
-    send_sound(g_send_sound, 1);
+    send_sound(g_send_sound, 2);
+}
+
+void play_motor(uint8_t type)
+{
+    g_send_sound[0] = SOUND_SEND_COMMAND_MOTOR;
+    g_send_sound[1] = type;
+    send_sound(g_send_sound, 2);
 }
 
 void gestion_menu(void)
@@ -614,7 +659,7 @@ void gestion_menu(void)
 		g_menu_idx--;
 
 		/* Play beep */
-		beep(1);
+		beep(PLAY_ONE_TIME);
 
 		/* clear LCD before displaying new menu or action */
 		g_lcd.clear();
@@ -634,7 +679,7 @@ void gestion_menu(void)
 		g_menu_idx++;
 
 		/* Play beep */
-		beep(2);
+		beep(PLAY_ONE_TIME);
 
 		/* clear LCD before displaying new menu or action */
 		g_lcd.clear();
@@ -661,7 +706,7 @@ void gestion_menu(void)
 	    g_menu_tree_level++;
 
 	    /* Play beep */
-	    beep(3);
+	    beep(PLAY_ONE_TIME);
 
 	    /* end of threatment, re-enable the button for interrupt */
 	    g_button = NO_BUTTON;
@@ -887,6 +932,13 @@ void process_menu(void)
 
 		    g_process_menu = 0;
 		}break;
+		case MENU_ACTION_PLAY_NOTE:
+		{
+		    g_process_sound_action |= PROCESS_ACTION_PLAY_NOTE;
+		    g_process_menu = 0;
+
+		    g_action = ACTION_PLAY_NOTE;
+		}break;
 		case MENU_ACTION_PLAY_TEMP:
 		{
 
@@ -1019,12 +1071,18 @@ void process_motor(void)
 	}
 	else if (g_process_motor == PROCESS_MOTOR_STOP)
 	{
+	    g_send_sound[0] = SOUND_SEND_COMMAND_STOP_PLAYING;
+	    send_sound(g_send_sound, 1);
+
 	    g_action = ACTION_STOP;
 	}
 	else if (g_process_motor == PROCESS_MOTOR_RUNNING_DETECTION)
 	{
 	    g_action_detection_left  = g_recv_motor[1];
 	    g_action_detection_right = g_recv_motor[2];
+
+	    g_send_sound[0] = SOUND_SEND_COMMAND_STOP_PLAYING;
+	    send_sound(g_send_sound, 1);
 
 	    g_action = ACTION_DETECTED;
 	}
@@ -1087,6 +1145,7 @@ void process_motor(void)
 		g_process_menu = 1;
 		g_lcd.clear();
 		g_lcd.print(g_menu[0].name);
+
 	    }
 	}
 
@@ -1341,6 +1400,7 @@ void process_motor_action(void)
 		if (g_motor_left_direction == MOTOR_DIRECTION_FORWARD)
 		{
 		    g_send_motor[0] = MOTOR_SEND_COMMAND_FORWARD;
+		    play_motor(PLAY_REPEAT);
 		}
 		else
 		{
@@ -1392,6 +1452,9 @@ void process_motor_action(void)
 		    /* send stop to motor */
 		    g_send_motor[0] = MOTOR_SEND_COMMAND_STOP;
 		    send_motor(g_send_motor, 1);
+
+		    g_send_sound[0] = SOUND_SEND_COMMAND_STOP_PLAYING;
+		    send_sound(g_send_sound, 1);
 
 		    go_up_menu();
 
@@ -1635,6 +1698,8 @@ void process_sound(void)
 
 void process_sound_action(void)
 {
+    int analog_value;
+
     if (g_process_sound_action)
     {
 	if ((g_process_sound_action & PROCESS_ACTION_LIST) == PROCESS_ACTION_LIST)
@@ -1698,6 +1763,88 @@ void process_sound_action(void)
 
 		    /* end of threatment, re-enable the button for interrupt */
 		    g_button = NO_BUTTON;
+		}
+		break;
+		default:
+		    /* end of threatment, re-enable the button for interrupt */
+		    g_button = NO_BUTTON;
+		break;
+	    }
+	}
+	else if ((g_process_sound_action & PROCESS_ACTION_PLAY_NOTE) == PROCESS_ACTION_PLAY_NOTE)
+	{
+	    /* Read Analog part */
+	    analog_value = analogRead(PIN_NOTE1);
+
+	    if (analog_value < 30)
+	    {
+		g_send_sound[0] = SOUND_SEND_COMMAND_NOTE;
+		g_send_sound[1] = NOTE_DO;
+		send_sound(g_send_sound, 2);
+	    }
+
+	    /* Read Analog part */
+	    analog_value = analogRead(PIN_NOTE2);
+
+	    if (analog_value < 30)
+	    {
+		g_send_sound[0] = SOUND_SEND_COMMAND_NOTE;
+		g_send_sound[1] = NOTE_RE;
+		send_sound(g_send_sound, 2);
+	    }
+
+	    /* Read Analog part */
+	    analog_value = analogRead(PIN_NOTE3);
+
+	    if (analog_value < 30)
+	    {
+		g_send_sound[0] = SOUND_SEND_COMMAND_NOTE;
+		g_send_sound[1] = NOTE_FA;
+		send_sound(g_send_sound, 2);
+	    }
+
+	    /* Read Analog part */
+	    analog_value = analogRead(PIN_NOTE4);
+
+	    if (analog_value < 30)
+	    {
+		g_send_sound[0] = SOUND_SEND_COMMAND_NOTE;
+		g_send_sound[1] = NOTE_SO;
+		send_sound(g_send_sound, 2);
+	    }
+
+	    /* Read Analog part */
+	    analog_value = analogRead(PIN_NOTE5);
+
+	    if (analog_value < 30)
+	    {
+		g_send_sound[0] = SOUND_SEND_COMMAND_NOTE;
+		g_send_sound[1] = NOTE_LA;
+		send_sound(g_send_sound, 2);
+	    }
+
+	    /* Read Analog part */
+	    analog_value = analogRead(PIN_NOTE6);
+
+	    if (analog_value < 30)
+	    {
+		g_send_sound[0] = SOUND_SEND_COMMAND_NOTE;
+		g_send_sound[1] = NOTE_SI;
+		send_sound(g_send_sound, 2);
+	    }
+
+	    delay(100);
+
+	    /* Check which Button is hold */
+	    switch (g_button)
+	    {
+		case UP_BUTTON:
+		{
+		    g_send_sound[0] = SOUND_SEND_COMMAND_STOP_PLAYING;
+		    send_sound(g_send_sound, 1);
+
+		    go_up_menu();
+		    g_process_sound_action &= ~PROCESS_ACTION_PLAY_NOTE;
 		}
 		break;
 		default:
