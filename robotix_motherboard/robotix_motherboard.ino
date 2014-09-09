@@ -937,6 +937,9 @@ void process_menu(void)
 		    g_process_sound_action |= PROCESS_ACTION_PLAY_NOTE;
 		    g_process_menu = 0;
 
+		    g_lcd.clear();
+		    g_lcd.print("Piano !  ");
+
 		    g_action = ACTION_PLAY_NOTE;
 		}break;
 		case MENU_ACTION_PLAY_TEMP:
@@ -1666,6 +1669,10 @@ void process_sound(void)
 	    {
 		g_lcd.print("Ready !");
 
+		g_send_sound[0] = SOUND_SEND_COMMAND_HELLO;
+		g_send_sound[1] = PLAY_ONE_TIME;
+		send_sound(g_send_sound, 2);
+
 		/* Get max file number */
 		g_send_sound[0] = SOUND_SEND_COMMAND_LIST;
 		send_sound(g_send_sound, 1);
@@ -1776,64 +1783,101 @@ void process_sound_action(void)
 	    /* Read Analog part */
 	    analog_value = analogRead(PIN_NOTE1);
 
-	    if (analog_value < 30)
+	    if (analog_value < 50)
 	    {
+		g_lcd.setCursor(0, 1);
+		g_lcd.print(" ....DO.... ");
+
 		g_send_sound[0] = SOUND_SEND_COMMAND_NOTE;
 		g_send_sound[1] = NOTE_DO;
 		send_sound(g_send_sound, 2);
+		delay(150);
 	    }
 
 	    /* Read Analog part */
 	    analog_value = analogRead(PIN_NOTE2);
 
-	    if (analog_value < 30)
+	    if (analog_value < 50)
 	    {
+		g_lcd.setCursor(0, 1);
+		g_lcd.print(" ....RE.... ");
+
 		g_send_sound[0] = SOUND_SEND_COMMAND_NOTE;
 		g_send_sound[1] = NOTE_RE;
 		send_sound(g_send_sound, 2);
+		delay(150);
 	    }
 
 	    /* Read Analog part */
 	    analog_value = analogRead(PIN_NOTE3);
 
-	    if (analog_value < 30)
+	    if (analog_value < 50)
 	    {
+		g_lcd.setCursor(0, 1);
+		g_lcd.print(" ....MI.... ");
+
 		g_send_sound[0] = SOUND_SEND_COMMAND_NOTE;
-		g_send_sound[1] = NOTE_FA;
+		g_send_sound[1] = NOTE_MI;
 		send_sound(g_send_sound, 2);
+		delay(150);
 	    }
 
 	    /* Read Analog part */
 	    analog_value = analogRead(PIN_NOTE4);
 
-	    if (analog_value < 30)
+	    if (analog_value < 50)
 	    {
+		g_lcd.setCursor(0, 1);
+		g_lcd.print(" ....FA.... ");
+
 		g_send_sound[0] = SOUND_SEND_COMMAND_NOTE;
-		g_send_sound[1] = NOTE_SO;
+		g_send_sound[1] = NOTE_FA;
 		send_sound(g_send_sound, 2);
+		delay(150);
 	    }
 
 	    /* Read Analog part */
 	    analog_value = analogRead(PIN_NOTE5);
 
-	    if (analog_value < 30)
+	    if (analog_value < 50)
 	    {
+		g_lcd.setCursor(0, 1);
+		g_lcd.print(" ....SOL... ");
+
 		g_send_sound[0] = SOUND_SEND_COMMAND_NOTE;
-		g_send_sound[1] = NOTE_LA;
+		g_send_sound[1] = NOTE_SO;
 		send_sound(g_send_sound, 2);
+		delay(150);
 	    }
 
 	    /* Read Analog part */
 	    analog_value = analogRead(PIN_NOTE6);
 
-	    if (analog_value < 30)
+	    if (analog_value < 50)
 	    {
+		g_lcd.setCursor(0, 1);
+		g_lcd.print(" ....LA.... ");
+
+		g_send_sound[0] = SOUND_SEND_COMMAND_NOTE;
+		g_send_sound[1] = NOTE_LA;
+		send_sound(g_send_sound, 2);
+		delay(150);
+	    }
+
+	    /* Read Analog part */
+	    analog_value = analogRead(PIN_NOTE7);
+
+	    if (analog_value < 50)
+	    {
+		g_lcd.setCursor(0, 1);
+		g_lcd.print(" ....SI.... ");
+
 		g_send_sound[0] = SOUND_SEND_COMMAND_NOTE;
 		g_send_sound[1] = NOTE_SI;
 		send_sound(g_send_sound, 2);
+		delay(150);
 	    }
-
-	    delay(100);
+	    delay(80);
 
 	    /* Check which Button is hold */
 	    switch (g_button)

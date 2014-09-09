@@ -70,6 +70,7 @@ SdReader g_card;    /* This object holds the information for the card */
 FatVolume g_vol;    /* This holds the information for the partition on the card */
 
 FatReader g_root;   /* This holds the information for the filesystem on the card */
+FatReader g_file;   /* This is for the file we are playing */
 
 /* buffer for directory reads */
 #define MAX_FILES				10
@@ -78,21 +79,10 @@ dir_t	g_dirBuf[MAX_FILES];
  /* This is the only wave (audio) object, since we will only play one at a time */
 WaveHC g_wave;
 
-FatReader g_file;
-dir_t g_file_to_play;
-
-char g_file_beep[]  = "_beep   ";
-char g_file_motor[]  = "_motor  ";
-char g_file_start[]  = "_start  ";
-char g_wav[] = "wav";
-
-char *g_file_note[]   = {"_do     ",
-			 "_re     ",
-			 "_mi     ",
-			 "_fa     ",
-			 "_so     ",
-			 "_la     ",
-			 "_si     "};
+char g_file_beep[]     = "_beep.wav";
+char g_file_motor[]    = "_motor.wav";
+char g_file_start[]    = "_start.wav";
+char *g_file_note[]   = {"_do.wav", "_re.wav", "_mi.wav", "_fa.wav", "_sol.wav", "_la.wav", "_si.wav"};
 
 enum note_e
 {
@@ -198,6 +188,54 @@ void send_mother(uint8_t *buffer, int len)
     Serial.write(padding, CMD_SEND_DATA_MAX - len);
 }
 
+uint8_t play_file(char *filename)
+{
+    if (g_wave.isplaying)
+    {
+	g_wave.stop();
+	g_file.close();
+    }
+
+    if (g_file.open(g_root, filename))
+    {
+	if (g_wave.create(g_file))
+	{
+	    g_wave.play();
+
+	    g_send_mother[0] = COMMAND_PLAYING_FILE;
+	    send_mother(g_send_mother, 1);
+
+	    return 1;
+	}
+    }
+    return 0;
+}
+
+uint8_t play_file_dir(dir_t *filename)
+{
+    if (g_wave.isplaying)
+    {
+	g_wave.stop();
+	g_file.close();
+    }
+
+    if (g_file.open(g_vol, *filename))
+    {
+	if (g_wave.create(g_file))
+	{
+	    g_wave.play();
+
+	    g_send_mother[0] = COMMAND_PLAYING_FILE;
+	    send_mother(g_send_mother, 1);
+
+	    return 1;
+	}
+    }
+    return 0;
+}
+
+
+
 uint8_t Read_card(FatReader dir)
 {
     FatReader file;
@@ -208,8 +246,8 @@ uint8_t Read_card(FatReader dir)
 	/* Read every file in the directory one at a time
 	 * Skip it if not a subdirectory and not a .WAV file and not a system file starting with '_'
 	 */
-	if (!DIR_IS_SUBDIR(g_dirBuf[nb_files]) &&
-	    (strncmp_P((char *)&g_dirBuf[nb_files].name[8], PSTR("WAV"), 3) != 0) &&
+	if ((!DIR_IS_SUBDIR(g_dirBuf[nb_files]) &&
+		(strncmp_P((char *)&g_dirBuf[nb_files].name[8], PSTR("WAV"), 3)) != 0) ||
 	    (g_dirBuf[nb_files].name[0] == '_'))
 	{
 	    continue;
@@ -311,108 +349,45 @@ void process_command(void)
 	}
 	else if (g_process_command == PROCESS_COMMAND_PLAYFILE)
 	{
-	    if (g_wave.isplaying)
-	    {
-		g_wave.stop();
-		g_file.close();
-	    }
-
 	    file_number =  g_recv_mother[1];
-
-	    if (g_file.open(g_vol, g_dirBuf[file_number]))
+	    if (play_file_dir(&g_dirBuf[file_number]))
 	    {
-		if (g_wave.create(g_file))
-		{
-		    g_wave.play();
-		    g_process_action |= PROCESS_ACTION_PLAYING;
-		}
+		g_process_action |= PROCESS_ACTION_PLAYING;
 	    }
 	}
 	else if (g_process_command == PROCESS_COMMAND_BEEP_KEY)
 	{
-	    if (g_wave.isplaying)
-	    {
-		g_wave.stop();
-		g_file.close();
-	    }
-
 	    g_play_type = g_recv_mother[1];
-	    strncpy((char *)&g_file_to_play.name[0], g_file_beep, 8);
-	    strncpy((char *)&g_file_to_play.name[8], g_wav, 3);
-
-	    if (g_file.open(g_vol, g_file_to_play))
+	    if (play_file(g_file_beep))
 	    {
-		if (g_wave.create(g_file))
-		{
-		    g_wave.play();
-		    g_process_action |= PROCESS_ACTION_PLAYING;
-		}
+		g_process_action |= PROCESS_ACTION_PLAYING;
 	    }
 	}
 	else if (g_process_command == PROCESS_COMMAND_MOTOR)
 	{
-	    if (g_wave.isplaying)
-	    {
-		g_wave.stop();
-		g_file.close();
-	    }
-
 	    g_play_type = g_recv_mother[1];
-	    strncpy((char *)&g_file_to_play.name[0], g_file_motor, 8);
-	    strncpy((char *)&g_file_to_play.name[8], g_wav, 3);
-
-	    if (g_file.open(g_vol, g_file_to_play))
+	    if (play_file(g_file_motor))
 	    {
-		if (g_wave.create(g_file))
-		{
-		    g_wave.play();
-		    g_process_action |= PROCESS_ACTION_PLAYING;
-		}
+		g_process_action |= PROCESS_ACTION_PLAYING;
 	    }
 	}
 	else if (g_process_command == PROCESS_COMMAND_HELLO)
 	{
-	    if (g_wave.isplaying)
-	    {
-		g_wave.stop();
-		g_file.close();
-	    }
-
 	    g_play_type = g_recv_mother[1];
-	    strncpy((char *)&g_file_to_play.name[0], g_file_start, 8);
-	    strncpy((char *)&g_file_to_play.name[8], g_wav, 3);
-
-	    if (g_file.open(g_vol, g_file_to_play))
+	    if (play_file(g_file_start))
 	    {
-		if (g_wave.create(g_file))
-		{
-		    g_wave.play();
-		    g_process_action |= PROCESS_ACTION_PLAYING;
-		}
+		g_process_action |= PROCESS_ACTION_PLAYING;
 	    }
 	}
 	else if (g_process_command == PROCESS_COMMAND_NOTE)
 	{
-	    if (g_wave.isplaying)
-	    {
-		g_wave.stop();
-		g_file.close();
-	    }
-
 	    note =  g_recv_mother[1];
-
-	    strncpy((char *)&g_file_to_play.name[0], g_file_note[note], 8);
-	    strncpy((char *)&g_file_to_play.name[8], g_wav, 3);
 
 	    if ((note >= NOTE_DO) && (note < NOTE_END))
 	    {
-		if (g_file.open(g_vol, g_file_to_play))
+		if (play_file(g_file_note[note]))
 		{
-		    if (g_wave.create(g_file))
-		    {
-			g_wave.play();
-			g_process_action |= PROCESS_ACTION_PLAYING;
-		    }
+		    g_process_action |= PROCESS_ACTION_PLAYING;
 		}
 	    }
 	}
@@ -426,7 +401,6 @@ void process_command(void)
 	}
 
 	g_process_receive = PROCESS_RECEIVE_WAIT_COMMAND;
-
 	g_process_command = 0;
     }
 }
@@ -437,17 +411,6 @@ void process_action(void)
     {
 	if ((g_process_action & PROCESS_ACTION_INIT) == PROCESS_ACTION_INIT)
 	{
-	    strncpy((char *)&g_file_to_play.name[0], g_file_start, 8);
-	    strncpy((char *)&g_file_to_play.name[8], g_wav, 3);
-
-	    if (g_file.open(g_vol, g_file_to_play))
-	    {
-		if (g_wave.create(g_file))
-		{
-		    g_wave.play();
-		}
-	    }
-
 	    g_send_mother[0] = COMMAND_READY;
 	    send_mother(g_send_mother, 1);
 
@@ -476,23 +439,20 @@ void process_action(void)
 	}
 	if ((g_process_action & PROCESS_ACTION_PLAYING) == PROCESS_ACTION_PLAYING)
 	{
-	    if (g_wave.isplaying)
+	    if (!g_wave.isplaying)
 	    {
-		g_send_mother[0] = COMMAND_PLAYING_FILE;
-		send_mother(g_send_mother, 1);
-		delay(1000);
-	    }
-	    else if (g_play_type == PLAY_REPEAT)
-	    {
-		g_wave.play();
-	    }
-	    else
-	    {
-		g_send_mother[0] = COMMAND_PLAY_END;
-		send_mother(g_send_mother, 1);
-		g_file.close();
+		if (g_play_type == PLAY_REPEAT)
+		{
+		    g_wave.play();
+		}
+		else
+		{
+		    g_send_mother[0] = COMMAND_PLAY_END;
+		    send_mother(g_send_mother, 1);
+		    g_file.close();
 
-		g_process_action &= ~PROCESS_ACTION_PLAYING;
+		    g_process_action &= ~PROCESS_ACTION_PLAYING;
+		}
 	    }
 	}
     }
